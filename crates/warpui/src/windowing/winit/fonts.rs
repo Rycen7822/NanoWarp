@@ -49,24 +49,6 @@ lazy_static! {
     /// Global cache of per-face bit7 glyph corruption check results.
     /// Key: (path, face_index), value: `true` = clean, `false` = corrupted.
     static ref BIT7_CHECKED_FONTS: DashMap<(PathBuf, u32), bool> = DashMap::new();
-
-    /// Paths whose every face has been scanned by the background scanner.
-    static ref SCANNED_PATHS: dashmap::DashSet<PathBuf> = dashmap::DashSet::new();
-
-    /// Paths that the background scanner found corrupted, pending removal from fontdb.
-    static ref PENDING_CORRUPTED_FONTS: std::sync::Mutex<Vec<PathBuf>> =
-        std::sync::Mutex::new(Vec::new());
-}
-
-/// Number of font faces in a font file (TTF or TTC).
-fn count_font_faces(data: &[u8]) -> usize {
-    if data.len() >= 12 && &data[0..4] == b"ttcf" {
-        let header_count = u32::from_be_bytes([data[8], data[9], data[10], data[11]]) as usize;
-        let max_from_data = data.len().saturating_sub(12) / 4;
-        header_count.min(max_from_data)
-    } else {
-        1
-    }
 }
 
 /// Checks whether any simple glyph in the `glyf` table has reserved bit 7 set
@@ -193,50 +175,6 @@ fn has_reserved_bit7_in_glyph_flags(data: &[u8], face_index: u32) -> bool {
     }
 
     false
-}
-
-/// Lazily initializes the background font scanner thread and returns a sender.
-/// The scanner reads font files from disk, checks for bit7 glyph corruption
-/// in every face, and caches per-face results in `BIT7_CHECKED_FONTS`.
-/// Corrupted paths are queued for removal from fontdb by
-/// `TextLayoutSystem::drain_corrupted_fonts`.
-fn background_scan_tx() -> &'static std::sync::mpsc::Sender<PathBuf> {
-    static TX: std::sync::OnceLock<std::sync::mpsc::Sender<PathBuf>> = std::sync::OnceLock::new();
-    TX.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::channel::<PathBuf>();
-        std::thread::Builder::new()
-            .name("font-bit7-scanner".into())
-            .spawn(move || {
-                let mut scanned = std::collections::HashSet::<PathBuf>::new();
-                while let Ok(path) = rx.recv() {
-                    if !scanned.insert(path.clone()) {
-                        continue;
-                    }
-                    let data = match std::fs::read(&path) {
-                        Ok(d) => d,
-                        Err(_) => continue,
-                    };
-                    let num_faces = count_font_faces(&data);
-                    let mut any_corrupted = false;
-                    for face_index in 0..num_faces {
-                        let index = face_index as u32;
-                        let corrupted = has_reserved_bit7_in_glyph_flags(&data, index);
-                        BIT7_CHECKED_FONTS.insert((path.clone(), index), !corrupted);
-                        any_corrupted |= corrupted;
-                    }
-                    SCANNED_PATHS.insert(path.clone());
-                    if any_corrupted {
-                        log::warn!(
-                            "Background font scan: found corrupted font at {}",
-                            path.display(),
-                        );
-                        PENDING_CORRUPTED_FONTS.lock().unwrap().push(path);
-                    }
-                }
-            })
-            .ok();
-        tx
-    })
 }
 
 struct FontFamily {
@@ -671,17 +609,6 @@ impl TextLayoutSystem {
             _ => {}
         }
 
-        // Remove any faces from fontdb that the background scanner found corrupted.
-        self.drain_corrupted_fonts();
-
-        // Queue a background scan for paths not yet fully scanned.
-        match &source {
-            Source::File(path) if !SCANNED_PATHS.contains(path) => {
-                background_scan_tx().send(path.clone()).ok();
-            }
-            _ => {}
-        }
-
         // TODO(alokedesai): Consider using FontDB's `make_shared_font_data` here. FontDB creates a temporary memory
         // mapped file every time data is read via a call to `with_face_data`. When rendering text this can
         // repeatedly cause allocation of a large amount of virtual address space, especially when trying to load
@@ -696,7 +623,8 @@ impl TextLayoutSystem {
             bail!("Loaded a font source that corresponds to 0 font faces")
         }
 
-        // Sync check: verify all uncached faces using fontdb's data, removing corrupted ones.
+        // Validate every uncached face before publishing FontIds. Reuse fontdb's mapped
+        // data instead of reading and scanning the entire file again in the background.
         let mut removed_ids = Vec::new();
         {
             let font_store = self.font_store.read();
@@ -777,96 +705,6 @@ impl TextLayoutSystem {
 
         font_id_to_return
             .ok_or_else(|| anyhow!("Requested index for the font handle was unable to be loaded"))
-    }
-
-    /// Drains all pending corrupted font paths from the background scanner queue
-    /// and removes the corresponding faces from this instance's fontdb, cleaning
-    /// up all associated maps (`font_id_map`, `loaded_fonts`, `font_selections`,
-    /// and `fallback_fonts`). Only removes faces that the per-face cache marks
-    /// as corrupted, so clean siblings in a TTC are not affected.
-    fn drain_corrupted_fonts(&self) {
-        let paths: Vec<PathBuf> = PENDING_CORRUPTED_FONTS.lock().unwrap().drain(..).collect();
-        if paths.is_empty() {
-            return;
-        }
-
-        for path in &paths {
-            let faces: Vec<(fontdb::ID, u32)> = self
-                .font_store
-                .read()
-                .db()
-                .faces()
-                .filter(|f| matches!(&f.source, Source::File(p) if p == path))
-                .map(|f| (f.id, f.index))
-                .collect();
-
-            let to_remove: Vec<fontdb::ID> = faces
-                .into_iter()
-                .filter(|(_, face_index)| {
-                    BIT7_CHECKED_FONTS
-                        .get(&(path.clone(), *face_index))
-                        .is_some_and(|v| !*v)
-                })
-                .map(|(id, _)| id)
-                .collect();
-
-            if to_remove.is_empty() {
-                continue;
-            }
-
-            log::info!(
-                "Removing {} corrupted face(s) for {}",
-                to_remove.len(),
-                path.display(),
-            );
-
-            let mut font_store = self.font_store.write();
-            let db = font_store.db_mut();
-            for &db_id in &to_remove {
-                let font_id = self.font_id_map.read().get_by_right(&db_id).copied();
-
-                if let Some(font_id) = font_id {
-                    self.font_selections.retain(|_, v| *v != font_id);
-                    #[cfg(not(target_os = "windows"))]
-                    {
-                        self.fallback_fonts.remove(&font_id);
-                        for mut entry in self.fallback_fonts.iter_mut() {
-                            entry.value_mut().retain(|id| *id != font_id);
-                        }
-                    }
-                    #[cfg(target_os = "windows")]
-                    self.fallback_fonts.retain(|(base, _), fallbacks| {
-                        *base != font_id && !fallbacks.contains(&font_id)
-                    });
-                    self.loaded_fonts.retain(|_, v| *v != font_id);
-                    let mut families = self.families.write();
-                    let mut empty_family_ids = Vec::new();
-                    for (family_id, family) in families.iter_mut() {
-                        let new_ids: Vec<FontId> = family
-                            .font_ids
-                            .iter()
-                            .copied()
-                            .filter(|id| *id != font_id)
-                            .collect();
-                        if new_ids.is_empty() {
-                            empty_family_ids.push(*family_id);
-                        } else {
-                            family.font_ids = Vec1::try_from_vec(new_ids).unwrap();
-                        }
-                    }
-                    for &family_id in &empty_family_ids {
-                        families.remove(&family_id);
-                    }
-                    drop(families);
-                    for &family_id in &empty_family_ids {
-                        self.font_selections.retain(|&(fid, _), _| fid != family_id);
-                    }
-                    self.font_id_map.write().remove_by_right(&db_id);
-                }
-
-                db.remove_face(db_id);
-            }
-        }
     }
 
     /// Loads all of the fallback fonts for the `font_id` with a given `family_name` and set of `properties`.
