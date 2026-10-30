@@ -10,8 +10,7 @@ use warpui::{Entity, ModelContext, ModelHandle};
 use super::{GitInvalidation, GitRepoStatusEvent, GitStatusMetadata};
 use crate::code_review::diff_state::diff_metadata_against_head;
 use crate::context_chips::display_chip::GitBranchTrackingStatus;
-use crate::throttle::throttle;
-use crate::util::git::{detect_current_branch_display, detect_main_branch};
+use crate::util::git::{FileChangeEntry, detect_current_branch_display, detect_main_branch};
 
 /// Per-repository model that owns the filesystem watcher and exposes git status
 /// metadata. Consumers hold a `ModelHandle<GitRepoStatusModel>` and subscribe
@@ -24,6 +23,8 @@ pub struct LocalGitRepoStatusModel {
     repository: ModelHandle<Repository>,
     subscriber_id: Option<SubscriberId>,
     metadata: Option<GitStatusMetadata>,
+    files: Vec<FileChangeEntry>,
+    branches_dirty: bool,
     computing_metadata_abort_handle: Option<SpawnedFutureHandle>,
     refresh_pending: bool,
     #[cfg(windows)]
@@ -49,6 +50,8 @@ impl LocalGitRepoStatusModel {
             repository: repository_model.clone(),
             subscriber_id: None,
             metadata: None,
+            files: Vec::new(),
+            branches_dirty: true,
             computing_metadata_abort_handle: None,
             refresh_pending: false,
             #[cfg(windows)]
@@ -75,11 +78,11 @@ impl LocalGitRepoStatusModel {
                         handle.abort();
                     }
                     if let Some(subscription) = &me.wsl_subscription {
-                        ctx.emit(GitRepoStatusEvent::FilesInvalidated(
-                            subscription.take_changes(),
-                        ));
+                        let changes = subscription.take_changes();
+                        let git_changed = changes.git_changed;
+                        ctx.emit(GitRepoStatusEvent::FilesInvalidated(changes));
+                        me.refresh_worktree(git_changed, ctx);
                     }
-                    me.refresh_metadata(ctx);
                 },
                 |me, ctx| {
                     me.wsl_subscription = None;
@@ -91,7 +94,6 @@ impl LocalGitRepoStatusModel {
 
         // Start watching for filesystem changes.
         let (repository_update_tx, repository_update_rx) = async_channel::unbounded();
-        let (throttled_tx, throttled_rx) = async_channel::unbounded();
         let start = repository_model.update(ctx, |repo, ctx| {
             repo.start_watching(
                 RepositoryWatchMode::GitRepository,
@@ -115,9 +117,9 @@ impl LocalGitRepoStatusModel {
             }
         });
 
-        // Stream raw updates; determine whether a throttled metadata refresh is warranted.
+        // DirectoryWatcher already batches events. Coalesce work in-flight rather
+        // than imposing another five-second delay on the displayed file list.
         {
-            let throttled_tx_clone = throttled_tx;
             ctx.spawn_stream_local(
                 repository_update_rx,
                 move |me, update: RepositoryUpdate, ctx| {
@@ -145,21 +147,12 @@ impl LocalGitRepoStatusModel {
                             full: git_changed,
                             git_changed,
                         }));
-                        let _ = throttled_tx_clone.try_send(());
+                        me.refresh_worktree(git_changed, ctx);
                     }
                 },
                 |_, _| {},
             );
         }
-
-        // Throttled metadata refresh (at most once every 5 seconds).
-        ctx.spawn_stream_local(
-            throttle(Duration::from_secs(5), throttled_rx),
-            |me, _, ctx| {
-                me.refresh_metadata(ctx);
-            },
-            |_, _| {},
-        );
 
         model
     }
@@ -168,6 +161,10 @@ impl LocalGitRepoStatusModel {
     /// computed yet.
     pub fn metadata(&self) -> Option<&GitStatusMetadata> {
         self.metadata.as_ref()
+    }
+
+    pub fn files(&self) -> &[FileChangeEntry] {
+        &self.files
     }
 
     /// The path to the repository root.
@@ -179,18 +176,28 @@ impl LocalGitRepoStatusModel {
     /// events that may have changed git state (block completed, agent file
     /// edits, etc.).
     pub fn refresh_metadata(&mut self, ctx: &mut ModelContext<Self>) {
+        self.refresh_worktree(true, ctx);
+    }
+
+    fn refresh_worktree(&mut self, git_changed: bool, ctx: &mut ModelContext<Self>) {
+        self.branches_dirty |= git_changed;
         if self.computing_metadata_abort_handle.is_some() {
             self.refresh_pending = true;
             return;
         }
         let repo_path_buf = self.repo_path.clone();
+        let cached = if std::mem::take(&mut self.branches_dirty) {
+            None
+        } else {
+            self.metadata.clone()
+        };
         self.computing_metadata_abort_handle = Some(ctx.spawn(
-            async move { Self::load_metadata(repo_path_buf).await },
+            async move { Self::load_metadata(repo_path_buf, cached).await },
             |me, result, ctx| {
                 me.computing_metadata_abort_handle = None;
                 me.handle_metadata_result(result, ctx);
                 if std::mem::take(&mut me.refresh_pending) {
-                    me.refresh_metadata(ctx);
+                    me.refresh_worktree(false, ctx);
                 }
             },
         ));
@@ -217,12 +224,13 @@ impl LocalGitRepoStatusModel {
 
     fn handle_metadata_result(
         &mut self,
-        result: anyhow::Result<GitStatusMetadata>,
+        result: anyhow::Result<(GitStatusMetadata, Vec<FileChangeEntry>)>,
         ctx: &mut ModelContext<Self>,
     ) {
         match result {
-            Ok(metadata) => {
+            Ok((metadata, files)) => {
                 self.metadata = Some(metadata);
+                self.files = files;
             }
             Err(e) => {
                 log::warn!("GitRepoStatusModel: metadata load failed: {e}");
@@ -322,23 +330,33 @@ impl LocalGitRepoStatusModel {
     /// This reuses logic extracted from `DiffStateModel::load_metadata_for_repo`
     /// but only computes the HEAD (uncommitted) stats since that's all the git
     /// chip needs.
-    async fn load_metadata(repo_path: PathBuf) -> anyhow::Result<GitStatusMetadata> {
+    async fn load_metadata(
+        repo_path: PathBuf,
+        cached: Option<GitStatusMetadata>,
+    ) -> anyhow::Result<(GitStatusMetadata, Vec<FileChangeEntry>)> {
+        let stats_against_head = diff_metadata_against_head(&repo_path).await?;
+        if let Some(mut metadata) = cached {
+            metadata.stats_against_head = stats_against_head.aggregate_stats;
+            return Ok((metadata, stats_against_head.files));
+        }
         // Detect main branch.
         let main_branch_name = detect_main_branch(&repo_path).await?;
         // Detect current branch (using the display variant so detached HEAD
         // shows the short SHA instead of the literal "HEAD").
         let current_branch_name = detect_current_branch_display(&repo_path).await?;
         // Diff stats against HEAD.
-        let stats_against_head = diff_metadata_against_head(&repo_path).await?;
         let branch_tracking_status =
             Self::branch_tracking_status(&repo_path, &current_branch_name).await;
 
-        Ok(GitStatusMetadata {
-            current_branch_name,
-            main_branch_name,
-            stats_against_head: stats_against_head.aggregate_stats,
-            branch_tracking_status,
-        })
+        Ok((
+            GitStatusMetadata {
+                current_branch_name,
+                main_branch_name,
+                stats_against_head: stats_against_head.aggregate_stats,
+                branch_tracking_status,
+            },
+            stats_against_head.files,
+        ))
     }
 }
 
@@ -353,6 +371,8 @@ impl LocalGitRepoStatusModel {
             repository,
             subscriber_id: None,
             metadata,
+            files: Vec::new(),
+            branches_dirty: true,
             computing_metadata_abort_handle: None,
             refresh_pending: false,
             #[cfg(windows)]
