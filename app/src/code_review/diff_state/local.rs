@@ -2388,23 +2388,24 @@ impl LocalDiffStateModel {
 pub(crate) async fn diff_metadata_against_head(
     repo_path: &Path,
 ) -> Result<DiffMetadataAgainstBase> {
-    // First, get the list of changed files with their status
-    let status_output = run_git_command(
-        repo_path,
-        &[
-            "--no-optional-locks", // Avoid taking locks that might interfere with other git operations
-            "status",
-            "--untracked-files=all", // Get all untracked files
-            "--branch",              // Get branch information
-            "--porcelain=2",         // Use porcelain=2 to match git desktop implementation
-            "-z",                    // Split output by null characters
-        ],
-    )
-    .await?;
+    // These reads are independent. In WSL, serial execution also pays for two
+    // consecutive wsl.exe launches before the counters and file list can update.
+    let (status_output, num_stat_metadata) = futures::try_join!(
+        run_git_command(
+            repo_path,
+            &[
+                "--no-optional-locks", // Avoid taking locks that might interfere with other git operations
+                "status",
+                "--untracked-files=all", // Get all untracked files
+                "--branch",              // Get branch information
+                "--porcelain=2",         // Use porcelain=2 to match git desktop implementation
+                "-z",                    // Split output by null characters
+            ],
+        ),
+        LocalDiffStateModel::get_diff_metadata_using_numstat(repo_path, "HEAD"),
+    )?;
 
     let changed_files = LocalDiffStateModel::parse_git_status(&status_output)?;
-    let num_stat_metadata =
-        LocalDiffStateModel::get_diff_metadata_using_numstat(repo_path, "HEAD").await?;
 
     let mut total_additions = 0;
     let mut total_deletions = 0;
