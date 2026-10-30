@@ -514,6 +514,14 @@ jobs:
         with:
           target_os: ${{ matrix.os }}
 
+      - name: Build static WSL Git watcher
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          rustup target add x86_64-unknown-linux-musl --toolchain 1.92.0
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot install the WSL helper target' }
+          ./script/windows/prepare_wsl_git_watcher.ps1 -OutputDirectory .work/target/debug
+
       - name: Verify compilation with release flags
         shell: bash
         run: |

@@ -151,6 +151,7 @@ impl Repository {
         }
         let mut walk = ignore::WalkBuilder::new(&root);
         walk.hidden(false)
+            .ignore(false)
             .filter_entry(|entry| entry.file_name() != ".git");
         for entry in walk.build() {
             if stopping.load(Ordering::Relaxed) {
@@ -361,4 +362,3 @@ fn run_loop(
         }
     }
 }
-

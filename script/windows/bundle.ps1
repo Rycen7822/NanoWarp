@@ -164,6 +164,10 @@ if (-Not $SKIP_BUILD_BINARY) {
     }
 }
 
+# The Linux sidecar is a separate Cargo invocation, never a nested build.rs
+# build. Stage it beside the executable for both portable and installer builds.
+& "$WINDOWS_INSTALLER_DIR\prepare_wsl_git_watcher.ps1" -OutputDirectory $CARGO_TARGET_OUTPUT_DIR -Arch $ARCH
+
 if ($SKIP_BUILD_INSTALLER) {
     # If this is being run within a GitHub action, set an output variable with the
     # location of the binary so it can be referenced by subsequent actions.

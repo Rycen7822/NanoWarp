@@ -12,6 +12,7 @@ Run from the repository root after loading the local Rust environment:
 . .\.work\rust-env.ps1
 $env:CARGO_BUILD_JOBS = '2'
 $env:RUST_TEST_THREADS = '1'
+rustup target add x86_64-unknown-linux-musl --toolchain 1.92.0
 .\script\windows\bundle.ps1 -DEBUG_BUILD -RELEASE_TAG 0.1.0
 ```
 
@@ -27,6 +28,20 @@ Use `-SKIP_BUILD_BINARY` only with an existing package-named executable and
 `SETTINGS_SCHEMA_SOURCE` or `SETTINGS_SCHEMA_EXECUTABLE`. Cross-compiled binaries
 also require a runnable schema source; see the script's existing guards.
 `-CHECK_ONLY` checks the Cargo target without building an installer.
+
+Windows packages include `nanowarp-wsl-watch`, a small static Linux executable
+used only for Git invalidations in WSL repositories. The bundler cross-compiles
+it using Rust's bundled linker; it does not start or install anything in WSL.
+For ARM64 packages install `aarch64-unknown-linux-musl` instead. For a plain
+`cargo run` build, prepare the adjacent helper first:
+
+```powershell
+.\script\windows\prepare_wsl_git_watcher.ps1 -OutputDirectory .work/target/debug
+```
+
+The app shares one helper per active distribution, communicates through pipes,
+and closes it when subscriptions end. Missing or failed helpers use periodic
+background Git queries; terminal input and ordinary SSH are independent.
 
 The bundler supplies `TargetProfileDir`, `MyAppName`, `MyAppExeName`,
 `MyAppVersion`, `ReleaseChannel`, `Arch` and `OutputName` to ISCC. It writes to
