@@ -426,13 +426,75 @@ impl Command {
         if self.stdin_is_default {
             self.inner.stdin(Stdio::null());
         }
-        if self.stdout_is_default {
-            self.inner.stdout(Stdio::piped());
-        }
-        if self.stderr_is_default {
-            self.inner.stderr(Stdio::piped());
-        }
 
-        self.inner.output()
+        #[cfg(windows)]
+        {
+            // async-process uses an 8 MiB buffer per Windows output stream.
+            // Own the default capture pipes to bound helper command buffers to 4 MiB.
+            let prepared = (|| {
+                let stdout = self.stdout_is_default.then(std::io::pipe).transpose()?;
+                let stderr = self.stderr_is_default.then(std::io::pipe).transpose()?;
+                let stdout = stdout.map(|(reader, writer)| {
+                    self.inner.stdout(writer);
+                    reader
+                });
+                let stderr = stderr.map(|(reader, writer)| {
+                    self.inner.stderr(writer);
+                    reader
+                });
+                let child = self.inner.spawn();
+                // Command retains configured handles across spawns. Close our writer ends
+                // even on failure, otherwise readers cannot see EOF while Command lives.
+                if self.stdout_is_default {
+                    self.inner.stdout(Stdio::null());
+                }
+                if self.stderr_is_default {
+                    self.inner.stderr(Stdio::null());
+                }
+                io::Result::Ok((child?, stdout, stderr))
+            })();
+            async move {
+                let (child, stdout, stderr) = prepared?;
+                let (mut output, (stdout, stderr)) = futures_lite::future::try_zip(
+                    child.output(),
+                    futures_lite::future::try_zip(
+                        read_output_pipe(stdout),
+                        read_output_pipe(stderr),
+                    ),
+                )
+                .await?;
+                if let Some(stdout) = stdout {
+                    output.stdout = stdout;
+                }
+                if let Some(stderr) = stderr {
+                    output.stderr = stderr;
+                }
+                Ok(output)
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            if self.stdout_is_default {
+                self.inner.stdout(Stdio::piped());
+            }
+            if self.stderr_is_default {
+                self.inner.stderr(Stdio::piped());
+            }
+            self.inner.output()
+        }
     }
+}
+
+#[cfg(windows)]
+async fn read_output_pipe(pipe: Option<std::io::PipeReader>) -> io::Result<Option<Vec<u8>>> {
+    use futures_lite::AsyncReadExt as _;
+
+    let Some(pipe) = pipe else {
+        return Ok(None);
+    };
+    let mut bytes = Vec::new();
+    blocking::Unblock::with_capacity(4 * 1024 * 1024, pipe)
+        .read_to_end(&mut bytes)
+        .await?;
+    Ok(Some(bytes))
 }

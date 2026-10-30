@@ -21,6 +21,7 @@ tempfile = "3.8.0"
 
 [target.'cfg(windows)'.dependencies]
 anyhow.workspace = true
+blocking.workspace = true
 lazy_static.workspace = true
 thiserror.workspace = true
 win32job = "2.0.2"

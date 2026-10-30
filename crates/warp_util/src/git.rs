@@ -16,8 +16,6 @@ pub async fn run_git_command_with_env(
     args: &[&str],
     path_env: Option<&str>,
 ) -> Result<String> {
-    use command::Stdio;
-
     log::debug!(
         "[GIT OPERATION] git.rs run_git_command git {}",
         args.join(" ")
@@ -30,9 +28,7 @@ pub async fn run_git_command_with_env(
     }
 
     let mut cmd = git_command(repo_path, &git_args, &env);
-    cmd.stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    cmd.kill_on_drop(true);
     let output = cmd
         .output()
         .await

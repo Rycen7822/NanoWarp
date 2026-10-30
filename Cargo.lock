@@ -2049,6 +2049,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-process",
+ "blocking",
  "futures-lite 1.13.0",
  "lazy_static",
  "libc",
