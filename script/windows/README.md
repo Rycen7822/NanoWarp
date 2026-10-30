@@ -13,8 +13,13 @@ Run from the repository root after loading the local Rust environment:
 $env:CARGO_BUILD_JOBS = '2'
 $env:RUST_TEST_THREADS = '1'
 rustup target add x86_64-unknown-linux-musl --toolchain 1.92.0
-.\script\windows\bundle.ps1 -DEBUG_BUILD -RELEASE_TAG 0.1.0
+.\script\windows\bundle.ps1 -RELEASE_TAG 0.1.0
 ```
+
+The default bundle uses the optimized `rlto` profile (release with ThinLTO).
+For a development bundle with debug assertions, add `-DEBUG_BUILD`.
+The `release_bundle` feature selects packaged resources; it does not enable
+compiler optimizations by itself. Use the same profile for performance comparisons.
 
 Put `ISCC.exe` on the current process's PATH. Keep tool downloads, TEMP/TMP,
 Cargo output and installer output under the D-drive `.work` directory.

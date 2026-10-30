@@ -3,7 +3,7 @@
 # Bundle the application for release.
 
 Param (
-    # Build dev bundles by default.
+    # Build an unoptimized development bundle when explicitly requested.
     [Switch]$DEBUG_BUILD = $False,
 
     [Alias('check-only')]
