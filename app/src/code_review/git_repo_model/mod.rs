@@ -32,6 +32,7 @@ pub struct GitStatusMetadata {
 // ── GitRepoStatusModel ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(all(windows, feature = "local_fs"), derive(serde::Deserialize))]
 pub struct GitInvalidation {
     /// Repository-relative paths; full invalidation supersedes this set.
     pub paths: HashSet<PathBuf>,

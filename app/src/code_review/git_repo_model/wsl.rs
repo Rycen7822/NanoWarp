@@ -45,9 +45,8 @@ enum Event {
     },
     Dirty {
         id: u64,
-        paths: Vec<std::path::PathBuf>,
-        full: bool,
-        git_changed: bool,
+        #[serde(flatten)]
+        changes: GitInvalidation,
     },
     Error {
         id: u64,
@@ -176,41 +175,32 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
                 Either::Left((Err(_), _)) => break,
                 Either::Right((line, _)) => {
                     let line = line.context("helper closed its notification pipe")??;
-                    match serde_json::from_str(&line).context("invalid WSL watcher notification")? {
-                        Event::Ready { id } => {
-                            if let Some((events, pending)) = subscribers.get(&id) {
-                                pending.lock().merge(GitInvalidation {
-                                    full: true,
-                                    git_changed: true,
-                                    ..Default::default()
-                                });
-                                let _ = events.try_send(());
-                            }
-                        }
-                        Event::Dirty {
+                    let (id, changes) = match serde_json::from_str(&line)
+                        .context("invalid WSL watcher notification")?
+                    {
+                        Event::Ready { id } => (
                             id,
-                            paths,
-                            full,
-                            git_changed,
-                        } => {
-                            if let Some((events, pending)) = subscribers.get(&id) {
-                                // Merge payloads before waking: a full notification channel
-                                // must not discard paths from subsequent saves.
-                                pending.lock().merge(GitInvalidation {
-                                    paths: paths.into_iter().collect(),
-                                    full,
-                                    git_changed,
-                                });
-                                let _ = events.try_send(());
-                            }
-                        }
+                            GitInvalidation {
+                                full: true,
+                                git_changed: true,
+                                ..Default::default()
+                            },
+                        ),
+                        Event::Dirty { id, changes } => (id, changes),
                         Event::Error { id, message } => {
                             log::warn!("WSL Git watcher subscription failed: {message}");
                             subscribers.remove(&id);
                             if subscribers.is_empty() {
                                 break;
                             }
+                            continue;
                         }
+                    };
+                    if let Some((events, pending)) = subscribers.get(&id) {
+                        // Merge before waking: a full channel must not discard
+                        // paths from subsequent saves.
+                        pending.lock().merge(changes);
+                        let _ = events.try_send(());
                     }
                 }
             }

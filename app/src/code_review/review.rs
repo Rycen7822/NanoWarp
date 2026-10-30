@@ -114,7 +114,7 @@ impl GitReviewView {
         if !self
             .selected
             .as_ref()
-            .is_some_and(|path| self.files.iter().any(|file| &file.path == path))
+            .is_some_and(|path| paths.contains(path))
         {
             self.select(self.files.first().map(|file| file.path.clone()), ctx);
         }
@@ -151,14 +151,13 @@ impl GitReviewView {
         }
         self.message = "Updating…".into();
         let root = self.root.clone();
-        let selected = path.clone();
         let epoch = self.selection_epoch;
         let baseline_epoch = self.baseline_epoch;
         let base = self.base.clone();
         self.loading = Some(ctx.spawn(
             async move { load_file(root, path, base).await },
             move |me, result, ctx| {
-                if me.selection_epoch != epoch || me.selected.as_ref() != Some(&selected) {
+                if me.selection_epoch != epoch {
                     return;
                 }
                 me.loading = None;
@@ -218,22 +217,19 @@ async fn load_file(
     else {
         return Ok(None);
     };
-    let base = if let Some(base) = cached_base {
-        base
-    } else {
-        match &status {
-            GitFileStatus::New | GitFileStatus::Untracked => String::new(),
-            _ => {
-                let base_path = match &status {
-                    GitFileStatus::Renamed { old_path } | GitFileStatus::Copied { old_path } => {
-                        old_path
-                    }
-                    _ => &path,
-                };
-                warp_util::git::run_git_command(&root, &["show", &format!("HEAD:{base_path}")])
-                    .await
-                    .context("cannot read HEAD content")?
-            }
+    let base = match (cached_base, &status) {
+        (Some(base), _) => base,
+        (_, GitFileStatus::New | GitFileStatus::Untracked) => String::new(),
+        (_, status) => {
+            let base_path = match status {
+                GitFileStatus::Renamed { old_path } | GitFileStatus::Copied { old_path } => {
+                    old_path
+                }
+                _ => &path,
+            };
+            warp_util::git::run_git_command(&root, &["show", &format!("HEAD:{base_path}")])
+                .await
+                .context("cannot read HEAD content")?
         }
     };
     if base.len() > MAX_DIFF_SIZE {
