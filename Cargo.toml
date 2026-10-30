@@ -149,6 +149,7 @@ jsonschema = { version = "0.45", default-features = false }
 lasso = { version = "0.7.3", features = ["multi-threaded"] }
 lazy_static = "1.4.0"
 libc = "0.2.81"
+ignore = "0.4"
 libtest-mimic = "0.8.2"
 line-ending = "1.4.0"
 log = { version = "0.4", features = ["serde", "std"] }
@@ -405,6 +406,15 @@ inherits = "release-lto-debug_assertions"
 [profile.dev-remote]
 inherits = "dev"
 strip = "symbols"
+
+[profile.wsl-helper]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+debug = 0
+strip = "symbols"
+panic = "abort"
 
 
 [patch.crates-io]

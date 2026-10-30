@@ -12286,6 +12286,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e9df38ee2d2c3c5948ea468a8406ff0db0b29ae1ffde1bcf20ef305bcc95c51"
 
 [[package]]
+name = "wsl_git_watcher"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ignore",
+ "notify-debouncer-full",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "wyz"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,17 @@
+[package]
+name = "wsl_git_watcher"
+version = "0.1.0"
+edition = "2024"
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nanowarp-wsl-watch"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+anyhow.workspace = true
+ignore.workspace = true
+notify-debouncer-full.workspace = true
+serde.workspace = true
+serde_json.workspace = true
