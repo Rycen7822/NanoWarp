@@ -39,6 +39,24 @@ fn initialize_editor(app: &mut App) -> (WindowId, ViewHandle<CodeEditorView>) {
 }
 
 #[test]
+fn review_snapshot_updates_same_count_content_and_stays_read_only() {
+    App::test((), |mut app| async move {
+        let (_window, editor) = initialize_editor(&mut app);
+        editor.update(&mut app, |view, ctx| {
+            view.set_review_content("base\n", "first\n", ctx);
+            assert_eq!(view.text(ctx).as_str(), "first\n");
+            view.set_review_content("base\n", "later\n", ctx);
+            view.handle_action(
+                &CodeEditorViewAction::UserTyped(UserInput::new("unwanted")),
+                ctx,
+            );
+            assert_eq!(view.text(ctx).as_str(), "later\n");
+            assert_eq!(view.interaction_state(ctx), InteractionState::Selectable);
+        });
+    });
+}
+
+#[test]
 fn test_interaction_state_prevents_editing() {
     App::test((), |mut app| async move {
         let (_window, editor_view) = initialize_editor(&mut app);

@@ -519,6 +519,8 @@ pub struct Workspace {
     tab_config_params_modal: ModalViewState<Modal<TabConfigParamsModal>>,
     session_config_modal: ModalViewState<Modal<SessionConfigModal>>,
     resource_center_view: ViewHandle<ResourceCenterView>,
+    #[cfg(feature = "local_fs")]
+    git_review_view: Option<ViewHandle<crate::code_review::review::GitReviewView>>,
     command_search_view: ViewHandle<CommandSearchView>,
     settings_file_error: Option<crate::settings::SettingsFileError>,
     settings_error_banner_dismissed: bool,
@@ -1503,6 +1505,8 @@ impl Workspace {
             tab_config_params_modal,
             session_config_modal,
             resource_center_view,
+            #[cfg(feature = "local_fs")]
+            git_review_view: None,
             command_search_view,
             settings_file_error,
             settings_error_banner_dismissed: false,
@@ -1995,6 +1999,14 @@ impl Workspace {
 
     fn current_focus_region(&self, ctx: &mut ViewContext<Self>) -> FocusRegion {
         let app = ctx;
+        #[cfg(feature = "local_fs")]
+        if self
+            .git_review_view
+            .as_ref()
+            .is_some_and(|review| review.is_self_or_child_focused(app))
+        {
+            return FocusRegion::RightPanel;
+        }
         if self.active_tab_pane_group().is_self_or_child_focused(app) {
             return FocusRegion::PaneGroup;
         }
@@ -2007,6 +2019,10 @@ impl Workspace {
     }
 
     fn has_right_region(&self) -> bool {
+        #[cfg(feature = "local_fs")]
+        if self.git_review_view.is_some() {
+            return true;
+        }
         self.current_workspace_state.is_right_panel_open()
     }
 
@@ -2031,6 +2047,11 @@ impl Workspace {
     }
 
     fn focus_right_region_entry(&mut self, ctx: &mut ViewContext<Self>) {
+        #[cfg(feature = "local_fs")]
+        if let Some(review) = &self.git_review_view {
+            ctx.focus(review);
+            return;
+        }
         if self.current_workspace_state.is_resource_center_open {
             ctx.focus(&self.resource_center_view);
         }
@@ -2153,6 +2174,11 @@ impl Workspace {
 
     /// This function shifts focus to the panel on the right.
     fn focus_right_panel(&mut self, ctx: &mut ViewContext<Self>) {
+        #[cfg(feature = "local_fs")]
+        if let Some(review) = &self.git_review_view {
+            ctx.focus(review);
+            return;
+        }
         // Starts from terminal
         if self.active_tab_pane_group().is_self_or_child_focused(ctx) {
             if self.current_workspace_state.is_resource_center_open {
@@ -10232,6 +10258,18 @@ impl Workspace {
         }
 
         // Resource center is a workspace-level panel, not configurable.
+        #[cfg(feature = "local_fs")]
+        if let Some(review) = &self.git_review_view {
+            panels_view = panels_view.with_child(
+                self.render_panel(
+                    app,
+                    ConstrainedBox::new(ChildView::new(review).finish())
+                        .with_width(650.)
+                        .finish(),
+                    &PanelPosition::Right,
+                ),
+            );
+        }
         if self.current_workspace_state.is_right_panel_open() {
             panels_view = panels_view.with_child(self.render_panel(
                 app,
@@ -11064,7 +11102,13 @@ impl TypedActionView for Workspace {
             ToggleInBandGenerators => self.toggle_in_band_generators(ctx),
             ToggleDebugNetworkStatus => self.toggle_debug_network_status(ctx),
             ToggleShowMemoryStats => self.toggle_show_memory_stats(ctx),
-            ToggleResourceCenter => self.toggle_resource_center(ctx),
+            ToggleResourceCenter => {
+                #[cfg(feature = "local_fs")]
+                {
+                    self.git_review_view = None;
+                }
+                self.toggle_resource_center(ctx);
+            }
             ToggleKeybindingsPage => self.toggle_keybindings_page(ctx),
             ShowCommandSearch(CommandSearchOptions {
                 filter,
@@ -11355,6 +11399,46 @@ impl TypedActionView for Workspace {
             }
             FocusLeftPanel => self.focus_left_panel(ctx),
             FocusRightPanel => self.focus_right_panel(ctx),
+            CloseGitReview => {
+                #[cfg(feature = "local_fs")]
+                {
+                    self.git_review_view = None;
+                    self.focus_active_tab(ctx);
+                    ctx.notify();
+                }
+            }
+            OpenGitReview(repo) => {
+                #[cfg(feature = "local_fs")]
+                {
+                    let repo = repo.clone().or_else(|| {
+                        self.read_from_active_terminal_view(ctx, |terminal| {
+                            terminal.current_repo_path().cloned()
+                        })
+                        .flatten()
+                    });
+                    if let Some(crate::code::buffer_location::LocalOrRemotePath::Local(root)) = repo
+                    {
+                        let location =
+                            crate::code::buffer_location::LocalOrRemotePath::Local(root.clone());
+                        let status = crate::code_review::git_repo_model::GitRepoModels::handle(ctx)
+                            .update(ctx, |model, ctx| model.subscribe(&location, ctx));
+                        match status {
+                            Ok(status) => {
+                                self.git_review_view = Some(ctx.add_typed_action_view(|ctx| {
+                                    crate::code_review::review::GitReviewView::new(
+                                        root, status, ctx,
+                                    )
+                                }));
+                                self.current_workspace_state.is_resource_center_open = false;
+                                ctx.notify();
+                            }
+                            Err(error) => log::warn!("Cannot open Git review: {error:#}"),
+                        }
+                    }
+                }
+                #[cfg(not(feature = "local_fs"))]
+                let _ = repo;
+            }
             TerminateApp => {
                 ctx.terminate_app(TerminationMode::Cancellable, None);
             }

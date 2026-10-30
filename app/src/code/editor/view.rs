@@ -144,6 +144,31 @@ pub struct CodeEditorView {
 }
 
 impl CodeEditorView {
+    /// Replace a read-only review snapshot without touching a shared file buffer.
+    pub(crate) fn set_review_content(
+        &mut self,
+        base: &str,
+        current: &str,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        use warp_editor::multiline::{LF, MultilineString};
+        self.model.update(ctx, |model, ctx| {
+            model
+                .buffer()
+                .update(ctx, |buffer, ctx| buffer.replace_all(current, ctx));
+            model.set_interaction_state(InteractionState::Selectable, ctx);
+            let version = model.buffer_version(ctx);
+            model.diff().update(ctx, |diff, ctx| {
+                diff.set_base(MultilineString::<LF>::apply(base));
+                diff.compute_diff(MultilineString::<LF>::apply(current), version, ctx);
+            });
+            if !model.diff_nav_is_active() {
+                model.toggle_diff_nav(None, ctx);
+            }
+        });
+        ctx.notify();
+    }
+
     /// A [`SessionPlatform`] is used to determine the default line ending for
     /// the code editor. It should be provided if the code editor can modify
     /// files on the user's system.

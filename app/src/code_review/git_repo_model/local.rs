@@ -176,6 +176,13 @@ impl LocalGitRepoStatusModel {
     /// events that may have changed git state (block completed, agent file
     /// edits, etc.).
     pub fn refresh_metadata(&mut self, ctx: &mut ModelContext<Self>) {
+        // Manual refresh and helper-failure polling must refresh open details
+        // even when aggregate addition/deletion counts have not changed.
+        ctx.emit(GitRepoStatusEvent::FilesInvalidated(GitInvalidation {
+            full: true,
+            git_changed: true,
+            ..Default::default()
+        }));
         self.refresh_worktree(true, ctx);
     }
 

@@ -544,6 +544,7 @@ fn render_pane_row_element(
 #[derive(Clone, Default)]
 struct PaneRowBadgeMouseStates {
     pull_request: MouseStateHandle,
+    diff_stats: MouseStateHandle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3169,11 +3170,23 @@ fn render_group_header(props: GroupHeaderProps<'_>, app: &AppContext) -> Box<dyn
 fn render_passive_terminal_diff_stats_badge(
     git_line_changes: &GitLineChanges,
     appearance: &Appearance,
+    repo: Option<crate::code::buffer_location::LocalOrRemotePath>,
+    mouse: MouseStateHandle,
 ) -> Box<dyn Element> {
-    render_badge_container(
+    let badge = render_badge_container(
         render_vtab_diff_stats_content(git_line_changes, appearance),
         internal_colors::fg_overlay_1(appearance.theme()),
-    )
+    );
+    if let Some(repo @ crate::code::buffer_location::LocalOrRemotePath::Local(_)) = repo {
+        Hoverable::new(mouse, move |_| badge)
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(WorkspaceAction::OpenGitReview(Some(repo.clone())));
+            })
+            .with_cursor(Cursor::PointingHand)
+            .finish()
+    } else {
+        badge
+    }
 }
 
 fn resolve_icon_with_status_variant(
@@ -4684,7 +4697,10 @@ fn render_summary_branch_line(
     let mut has_right_badges = false;
     if let Some(diff_stats) = &entry.diff_stats {
         right_badges.add_child(render_passive_terminal_diff_stats_badge(
-            diff_stats, appearance,
+            diff_stats,
+            appearance,
+            None,
+            Default::default(),
         ));
         has_right_badges = true;
     }
@@ -4870,6 +4886,8 @@ fn render_terminal_right_badges(
         right_badges.add_child(render_passive_terminal_diff_stats_badge(
             &git_line_changes,
             appearance,
+            terminal_view.current_repo_path().cloned(),
+            badge_mouse_states.diff_stats.clone(),
         ));
         has_badges = true;
     }
@@ -6221,6 +6239,8 @@ fn render_terminal_detail_section(
         right_badges.add_child(render_passive_terminal_diff_stats_badge(
             &git_line_changes,
             appearance,
+            terminal_view.current_repo_path().cloned(),
+            props.badge_mouse_states.diff_stats.clone(),
         ));
         has_right_badges = true;
     }

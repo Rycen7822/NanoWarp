@@ -1476,7 +1476,16 @@ impl DisplayChip {
             .with_corner_radius(CornerRadius::with_all(Radius::Pixels(CHIP_CORNER_RADIUS)))
             .finish();
 
-        Some(button)
+        Some(
+            Hoverable::new(self.mouse_state.clone(), move |_| button)
+                .on_click(|ctx, _, _| {
+                    ctx.dispatch_typed_action(crate::workspace::WorkspaceAction::OpenGitReview(
+                        None,
+                    ));
+                })
+                .with_cursor(Cursor::PointingHand)
+                .finish(),
+        )
     }
 
     fn working_directory_chip(
