@@ -5,7 +5,7 @@ Depends: fontconfig, libegl1, libwayland-client0, libwayland-egl1, libx11-6, lib
 Recommends: libgl1-mesa-dri, yaru-icon-theme | adwaita-icon-theme-full
 Priority: optional
 Architecture: @@ARCH@@
-Maintainer: Warp Linux Maintainers <linux-maintainers@warp.dev>
+Maintainer: NanoWarp contributors <61359108+Rycen7822@users.noreply.github.com>
 Homepage: https://github.com/Rycen7822/NanoWarp
 Description: NanoWarp, a local terminal emulator
  NanoWarp is a local terminal emulator based on Warp.
