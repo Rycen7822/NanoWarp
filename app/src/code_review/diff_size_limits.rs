@@ -23,7 +23,7 @@ const MAX_REASONABLE_DIFF_SIZE: usize = 2_187_500; // ~2.1875MB in decimal
  * The longest line length we should try to display. If a diff has a line longer
  * than this, we don't attempt to render it.
  */
-const MAX_CHARACTERS_PER_LINE: usize = 5000;
+pub(crate) const MAX_CHARACTERS_PER_LINE: usize = 5000;
 
 /**
  * Current line-based limit for auto-expansion in code review.

@@ -1342,7 +1342,7 @@ impl LocalDiffStateModel {
 
     /// Returns the per-file status by running a scoped `git status` (Head mode)
     /// or `git diff --name-status` (base-branch mode) limited to a single path.
-    async fn file_status_for_path(
+    pub(crate) async fn file_status_for_path(
         repo_path: &Path,
         relative: &str,
         mode: &DiffMode,

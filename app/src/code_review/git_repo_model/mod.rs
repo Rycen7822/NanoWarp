@@ -39,6 +39,7 @@ pub struct GitInvalidation {
     pub git_changed: bool,
 }
 
+#[cfg(all(windows, feature = "local_fs"))]
 impl GitInvalidation {
     pub(super) fn merge(&mut self, update: Self) {
         self.full |= update.full;

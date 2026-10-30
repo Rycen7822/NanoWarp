@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::time::Duration;
 
 use async_channel::Sender;

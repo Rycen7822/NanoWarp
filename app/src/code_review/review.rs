@@ -17,7 +17,7 @@ use warpui::{
     ViewHandle,
 };
 
-use super::diff_size_limits::{DiffSize, MAX_DIFF_SIZE};
+use super::diff_size_limits::{MAX_CHARACTERS_PER_LINE, MAX_DIFF_SIZE};
 use super::diff_state::{DiffMode, GitFileStatus, LocalDiffStateModel};
 use super::git_repo_model::{GitRepoStatusEvent, GitRepoStatusModel};
 use crate::appearance::Appearance;
@@ -36,6 +36,8 @@ pub struct GitReviewView {
     pending: bool,
     selection_epoch: u64,
     expanded: bool,
+    base: Option<String>,
+    baseline_epoch: u64,
     list_scroll: ClippedScrollStateHandle,
     row_mouse: HashMap<String, MouseStateHandle>,
     close_mouse: MouseStateHandle,
@@ -58,6 +60,10 @@ impl GitReviewView {
                 }
             }
             GitRepoStatusEvent::FilesInvalidated(changes) => {
+                if changes.git_changed {
+                    me.base = None;
+                    me.baseline_epoch += 1;
+                }
                 if changes.full
                     || me
                         .selected
@@ -79,6 +85,8 @@ impl GitReviewView {
             pending: false,
             selection_epoch: 0,
             expanded: true,
+            base: None,
+            baseline_epoch: 0,
             list_scroll: Default::default(),
             row_mouse: Default::default(),
             close_mouse: Default::default(),
@@ -123,6 +131,7 @@ impl GitReviewView {
             task.abort();
         }
         self.selected = path;
+        self.base = None;
         self.editor = None;
         self.pending = false;
         self.reload_selected(ctx);
@@ -144,13 +153,20 @@ impl GitReviewView {
         let root = self.root.clone();
         let selected = path.clone();
         let epoch = self.selection_epoch;
+        let baseline_epoch = self.baseline_epoch;
+        let base = self.base.clone();
         self.loading = Some(ctx.spawn(
-            async move { load_file(root, path).await },
+            async move { load_file(root, path, base).await },
             move |me, result, ctx| {
                 if me.selection_epoch != epoch || me.selected.as_ref() != Some(&selected) {
                     return;
                 }
                 me.loading = None;
+                if me.baseline_epoch != baseline_epoch {
+                    me.pending = false;
+                    me.reload_selected(ctx);
+                    return;
+                }
                 match result {
                     Ok(Some((base, current))) => {
                         let editor = me.editor.get_or_insert_with(|| {
@@ -168,6 +184,7 @@ impl GitReviewView {
                         editor.update(ctx, |editor, ctx| {
                             editor.set_review_content(&base, &current, ctx)
                         });
+                        me.base = Some(base);
                         me.message.clear();
                     }
                     Ok(None) => {
@@ -189,24 +206,40 @@ impl GitReviewView {
     }
 }
 
-async fn load_file(root: PathBuf, path: String) -> Result<Option<(String, String)>> {
-    let (_, diff) =
-        LocalDiffStateModel::retrieve_diff_state(&root, &root.join(&path), &DiffMode::Head, None)
-            .await?;
-    let Some(diff) = diff else {
+async fn load_file(
+    root: PathBuf,
+    path: String,
+    cached_base: Option<String>,
+) -> Result<Option<(String, String)>> {
+    // The editor already computes and renders the diff. Querying a Git patch
+    // and its binary numstat first repeats that work and adds WSL launches.
+    let Some((_, status)) =
+        LocalDiffStateModel::file_status_for_path(&root, &path, &DiffMode::Head, None).await?
+    else {
         return Ok(None);
     };
-    if diff.file_diff.is_binary || matches!(diff.file_diff.size, DiffSize::Unrenderable(_)) {
-        anyhow::bail!("binary or oversized file; open it in an external editor");
-    }
-    let base = diff
-        .content_at_head
-        .clone()
-        .context("base content unavailable")?;
+    let base = if let Some(base) = cached_base {
+        base
+    } else {
+        match &status {
+            GitFileStatus::New | GitFileStatus::Untracked => String::new(),
+            _ => {
+                let base_path = match &status {
+                    GitFileStatus::Renamed { old_path } | GitFileStatus::Copied { old_path } => {
+                        old_path
+                    }
+                    _ => &path,
+                };
+                warp_util::git::run_git_command(&root, &["show", &format!("HEAD:{base_path}")])
+                    .await
+                    .context("cannot read HEAD content")?
+            }
+        }
+    };
     if base.len() > MAX_DIFF_SIZE {
         anyhow::bail!("base content is too large to display");
     }
-    let current = if matches!(diff.file_diff.status, GitFileStatus::Deleted) {
+    let current = if matches!(status, GitFileStatus::Deleted) {
         String::new()
     } else {
         let file = root.join(path);
@@ -215,6 +248,16 @@ async fn load_file(root: PathBuf, path: String) -> Result<Option<(String, String
         }
         async_fs::read_to_string(file).await?
     };
+    if base.contains('\0') || current.contains('\0') {
+        anyhow::bail!("binary file; open it in an external editor");
+    }
+    if base
+        .lines()
+        .chain(current.lines())
+        .any(|line| line.chars().count() > MAX_CHARACTERS_PER_LINE)
+    {
+        anyhow::bail!("line is too long to display; open it in an external editor");
+    }
     Ok(Some((base, current)))
 }
 
