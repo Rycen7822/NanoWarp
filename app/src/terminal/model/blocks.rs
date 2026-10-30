@@ -2203,7 +2203,7 @@ impl BlockList {
             return;
         }
         if self.is_bootstrapping_precmd_done() {
-            EarlyOutput::preexec(self);
+            EarlyOutput::preexec(self, None);
         }
         self.ensure_active_block_started();
         self.active_block_mut().ensure_executing_for_completion();
@@ -2501,7 +2501,7 @@ impl BlockList {
         // because the distinction between typeahead and background output only
         // matters for user input.
         if self.is_bootstrapping_precmd_done() {
-            EarlyOutput::preexec(self);
+            EarlyOutput::preexec(self, Some(&data));
         }
         self.ensure_active_block_started();
 

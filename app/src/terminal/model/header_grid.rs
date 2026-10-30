@@ -638,18 +638,27 @@ impl HeaderGrid {
         }
     }
 
-    pub fn init_command(&mut self, command: impl AsRef<[u8]>) {
-        let mut processor = Processor::new();
+    /// Initializes the command from shell text, not terminal escape sequences.
+    pub fn init_command(&mut self, command: impl AsRef<str>) {
         // If we haven't marked the end of the prompt yet (possible in the case of input-matching
         // typeahead, in older shells), we do so now.
         if self.cached_prompt_end_point.is_none() {
             self.mark_and_cache_end_of_prompt();
         }
-        processor.parse_bytes(
-            &mut self.prompt_and_command_grid,
-            command.as_ref(),
-            &mut io::sink(),
-        );
+        self.prompt_and_command_grid.terminal_attribute(Attr::Bold);
+        for ch in command.as_ref().chars() {
+            match ch {
+                '\r' => self.prompt_and_command_grid.carriage_return(),
+                '\n' => {
+                    self.prompt_and_command_grid.carriage_return();
+                    self.prompt_and_command_grid.linefeed();
+                }
+                '\t' => self.prompt_and_command_grid.put_tab(1),
+                ch => self.prompt_and_command_grid.input(ch),
+            }
+        }
+        self.prompt_and_command_grid
+            .on_finish_byte_processing(&ansi::ProcessorInput::new(command.as_ref().as_bytes()));
 
         // If the given command didn't include a newline, make sure to add one here.
         if self.command_should_show_as_empty_when_finished() {

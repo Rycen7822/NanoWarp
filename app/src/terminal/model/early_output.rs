@@ -13,9 +13,10 @@ use super::image_map::StoredImageMetadata;
 use super::iterm_image::ITermImage;
 use super::kitty::{KittyAction, KittyResponse};
 use super::selection::ScrollDelta;
-use super::session::SessionInfo;
+use super::session::{SessionId, SessionInfo};
 use crate::terminal::event::Event as TerminalEvent;
 use crate::terminal::event_listener::ChannelEventListener;
+use crate::terminal::shell::ShellType;
 use crate::terminal::view::CONTROL_MASTER_ERROR_REGEX;
 
 #[cfg(test)]
@@ -48,6 +49,7 @@ pub enum TypeaheadMode {
 ///    print messages about job completion.
 pub struct EarlyOutput {
     mode: TypeaheadMode,
+    zsh_session_id: Option<SessionId>,
 
     /// The currently-accumulated typeahead.
     typeahead: String,
@@ -77,6 +79,7 @@ impl EarlyOutput {
         Self {
             // Default to InputMatching as a baseline for all shells.
             mode: TypeaheadMode::InputMatching,
+            zsh_session_id: None,
             typeahead: String::new(),
             typeahead_chars_inserted: 0.into(),
             unmatched_input: VecDeque::new(),
@@ -89,6 +92,8 @@ impl EarlyOutput {
     /// Configures the typeahead mode to use given the features that the current
     /// shell session supports.
     pub fn init_session(&mut self, session_info: &SessionInfo) {
+        self.zsh_session_id =
+            (session_info.shell.shell_type() == ShellType::Zsh).then_some(session_info.session_id);
         let supports_input_reporting = session_info.shell.input_reporting_sequence().is_some();
         self.mode = if supports_input_reporting {
             TypeaheadMode::ShellReported
@@ -193,9 +198,8 @@ impl EarlyOutput {
 
     /// Update early output state once the next command has started running. After
     /// this point, output we receive is no longer "early". This is called from
-    /// the blocklist's preexec hook, but doesn't implement the [`ansi::Handler`]
-    /// interface because it doesn't need preexec data.
-    pub fn preexec(block_list: &mut BlockList) {
+    /// the blocklist's preexec hook, or with no command when only completion was observed.
+    pub fn preexec(block_list: &mut BlockList, data: Option<&ansi::PreexecValue>) {
         if block_list.early_output().mode == TypeaheadMode::ShellReported {
             // We use this to fill in the command grid for commands that are submitted as typeahead (the
             // user types in a command and hits Enter before the previous command) finishes.
@@ -212,10 +216,22 @@ impl EarlyOutput {
             if !block_list.active_block().started()
                 && let Some(background_block) = block_list.remove_background_block()
             {
-                log::debug!("Repairing command from background block");
-                block_list
-                    .active_block_mut()
-                    .copy_command_grid(background_block.output_grid());
+                log::debug!("Recovering queued command");
+                // Zsh reports the complete command, whereas background output can also contain
+                // echoes of other queued lines. Bash's preexec command can be incomplete,
+                // including when returning to Bash after a Zsh subshell.
+                let zsh_session_id = block_list.early_output().zsh_session_id;
+                if let Some(data) = data.filter(|data| {
+                    zsh_session_id.is_some()
+                        && data.session_id.map(SessionId::from) == zsh_session_id
+                        && !data.command.is_empty()
+                }) {
+                    block_list.active_block_mut().init_command(&data.command);
+                } else {
+                    block_list
+                        .active_block_mut()
+                        .copy_command_grid(background_block.output_grid());
+                }
                 block_list.update_active_block_height();
             }
         }

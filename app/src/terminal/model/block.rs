@@ -979,7 +979,7 @@ impl Block {
     /// Write a new command into this block's command grid. We use this to
     /// fill out the command grid when the actual command, as echoed by the shell,
     /// was instead classified as background output.
-    pub fn init_command(&mut self, command: impl AsRef<[u8]>) {
+    pub fn init_command(&mut self, command: impl AsRef<str>) {
         self.header_grid.init_command(command);
     }
 
