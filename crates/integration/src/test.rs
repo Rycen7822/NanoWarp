@@ -5905,11 +5905,24 @@ function prompt {{
             }),
         )
         .with_step(
-            new_step_with_default_assertions("Copy prompt copies to clipboard properly")
+            new_step_with_default_assertions("Open prompt context menu")
                 .with_right_click_on_saved_position_fn(|app, window_id| {
                     let input = single_input_view_for_tab(app, window_id, 0);
                     format!("prompt_area_{}", input.id())
                 })
+                .add_named_assertion("Copy prompt menu item is rendered", |app, window_id| {
+                    let presenter = app.presenter(window_id).expect("test window presenter");
+                    async_assert!(
+                        presenter
+                            .borrow()
+                            .position_cache()
+                            .get_position("Copy prompt")
+                            .is_some()
+                    )
+                }),
+        )
+        .with_step(
+            new_step_with_default_assertions("Copy prompt copies to clipboard properly")
                 .with_click_on_saved_position("Copy prompt")
                 .add_assertion(assert_clipboard_contains_string(String::from(prompt_text))),
         )
