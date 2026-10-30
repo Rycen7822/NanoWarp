@@ -46,7 +46,9 @@ use crate::code::editor::element::{
 };
 use crate::code::editor::find::view::{CodeEditorFind as Find, Event as FindViewEvent};
 use crate::code::editor::goto_line::view::{Event as GoToLineEvent, GoToLineView};
-use crate::code::editor::model::{CodeEditorModel, CodeEditorModelEvent, LineBound};
+use crate::code::editor::model::{
+    CodeEditorModel, CodeEditorModelEvent, DiffNavigationState, LineBound,
+};
 use crate::code::editor::nav_bar::{NavBar, NavBarEvent};
 use crate::code::editor::scroll::{ScrollTrigger, ScrollWheelBehavior};
 use crate::editor::InteractionState;
@@ -162,9 +164,7 @@ impl CodeEditorView {
                 diff.set_base(MultilineString::<LF>::apply(base));
                 diff.compute_diff(MultilineString::<LF>::apply(current), version, ctx);
             });
-            if !model.diff_nav_is_active() {
-                model.toggle_diff_nav(None, ctx);
-            }
+            model.show_review_diff(ctx);
         });
         ctx.notify();
     }
@@ -770,6 +770,9 @@ impl CodeEditorView {
         line_range: Option<Range<LineCount>>,
         ctx: &mut ViewContext<Self>,
     ) {
+        if *self.model.as_ref(ctx).diff_navigation_state() == DiffNavigationState::Review {
+            return;
+        }
         let toggle_to_on = self
             .model
             .update(ctx, |model, ctx| model.toggle_diff_nav(line_range, ctx));
@@ -1332,7 +1335,9 @@ impl View for CodeEditorView {
             }
         };
         let mut col = Flex::column().with_child(inner);
-        if self.model.as_ref(app).diff_nav_is_active() {
+        if self.model.as_ref(app).diff_nav_is_active()
+            && *self.model.as_ref(app).diff_navigation_state() != DiffNavigationState::Review
+        {
             col.add_child(ChildView::new(&self.nav_bar).finish());
         }
 

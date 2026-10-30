@@ -7,11 +7,12 @@ use std::sync::Arc;
 use futures::stream::AbortHandle;
 use itertools::Itertools;
 use pathfinder_color::ColorU;
-use rangemap::RangeMap;
+use rangemap::{RangeMap, RangeSet};
 use similar::{ChangeTag, DiffOp, TextDiff};
 use string_offset::CharOffset;
 use warp_core::ui::theme::{AnsiColorIdentifier, Fill};
 use warp_editor::content::edit::TemporaryBlock;
+use warp_editor::content::text::LineCount as BufferLineCount;
 use warp_editor::content::version::BufferVersion;
 use warp_editor::multiline::{LF, MultilineStr, MultilineString};
 use warp_editor::render::model::{Decoration, LineCount, LineDecoration};
@@ -244,6 +245,42 @@ impl DiffModel {
             )
             .sorted_by(|a, b| Ord::cmp(&a.start, &b.start))
             .nth(index)
+    }
+
+    /// Unchanged ranges outside the context shown around each hunk in a review.
+    pub fn unchanged_line_ranges(
+        &self,
+        line_count: usize,
+        context: usize,
+    ) -> RangeSet<BufferLineCount> {
+        let mut hidden = RangeSet::new();
+        let mut next = 0;
+        for range in self
+            .added_or_changed_lines()
+            .chain(
+                self.status
+                    .deletion_mapping
+                    .keys()
+                    .map(|index| *index..*index),
+            )
+            .sorted_by_key(|range| range.start)
+        {
+            let start = range.start.saturating_sub(context).min(line_count);
+            if next < start {
+                hidden.insert(BufferLineCount::from(next)..BufferLineCount::from(start));
+            }
+            next = next.max(
+                range
+                    .end
+                    .max(range.start + 1)
+                    .saturating_add(context)
+                    .min(line_count),
+            );
+        }
+        if next < line_count {
+            hidden.insert(BufferLineCount::from(next)..BufferLineCount::from(line_count));
+        }
+        hidden
     }
 
     /// Get a single renderable diff hunk by its index.

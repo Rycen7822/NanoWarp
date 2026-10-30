@@ -82,6 +82,8 @@ pub enum DiffNavigationState {
     Collapsed,
     /// All diff hunks are expanded and one specific hunk is focused
     Focused(usize),
+    /// A read-only review shows every hunk without navigation focus or a footer.
+    Review,
 }
 
 enum IndentMode {
@@ -336,6 +338,11 @@ impl CodeEditorModel {
         !matches!(self.diff_navigation_state, DiffNavigationState::Collapsed)
     }
 
+    pub(crate) fn show_review_diff(&mut self, ctx: &mut ModelContext<Self>) {
+        self.diff_navigation_state = DiffNavigationState::Review;
+        self.refresh_diff_state(ctx);
+    }
+
     /// Allows programmatic selection updates
     pub fn selection(&self) -> &ModelHandle<SelectionModel> {
         &self.selection
@@ -515,7 +522,7 @@ impl CodeEditorModel {
             DiffNavigationState::Collapsed => {
                 // No diff decorations when collapsed
             }
-            DiffNavigationState::Focused(_) => {
+            DiffNavigationState::Focused(_) | DiffNavigationState::Review => {
                 let focused_diff_index = self.focused_diff_index();
                 // Show all diffs expanded, with the focused one getting special highlighting
                 let Some(base) = self.diff.as_ref(ctx).base() else {
@@ -799,6 +806,15 @@ impl CodeEditorModel {
     fn handle_diff_model_event(&mut self, event: &DiffModelEvent, ctx: &mut ModelContext<Self>) {
         match event {
             DiffModelEvent::DiffUpdated { .. } => {
+                if self.diff_navigation_state == DiffNavigationState::Review {
+                    let hidden = self
+                        .diff
+                        .as_ref(ctx)
+                        .unchanged_line_ranges(self.line_count(ctx) + 1, 3);
+                    self.hidden_lines
+                        .update(ctx, |model, ctx| model.set_hidden_lines(hidden, ctx));
+                    self.rebuild_layout(ctx);
+                }
                 // Do not refresh diff state if there is an active delayed rendering. We should wait until the delayed rendering
                 // is flushed so we could insert temporary blocks based on the accurate line ranges.
                 if self.delay_rendering.is_none() && self.diff_nav_is_active() {

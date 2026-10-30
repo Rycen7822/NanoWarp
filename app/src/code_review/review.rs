@@ -1,47 +1,73 @@
-//! Local, read-only Git review. File rows share terminal metadata; only the
-//! selected file owns an editor and performs detail I/O.
-use std::collections::{HashMap, HashSet};
+//! Local, read-only Git review with independently collapsible file cards.
+//! Only visible, expanded cards load detail, one file at a time.
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use warp_editor::render::element::VerticalExpansionBehavior;
 use warpui::r#async::SpawnedFutureHandle;
-use warpui::elements::new_scrollable::SingleAxisConfig;
+use warpui::clipboard::ClipboardContent;
+use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    ChildView, ClippedScrollStateHandle, ConstrainedBox, Container, Flex, Hoverable,
-    MouseStateHandle, NewScrollable, Padding, ParentElement, Shrinkable, Text,
+    Border, ChildView, ConstrainedBox, Container, CornerRadius, Empty, Flex, List, ListState,
+    MouseStateHandle, NewScrollable, Padding, ParentElement, Radius, ScrollStateHandle, Shrinkable,
+    Text,
 };
-use warpui::platform::Cursor;
+use warpui::ui_components::components::UiComponent;
+use warpui::units::Pixels;
 use warpui::{
-    AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
-    ViewHandle,
+    AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
+    ViewContext, ViewHandle,
 };
 
 use super::diff_size_limits::{MAX_CHARACTERS_PER_LINE, MAX_DIFF_SIZE};
 use super::diff_state::{DiffMode, GitFileStatus, LocalDiffStateModel};
 use super::git_repo_model::{GitRepoStatusEvent, GitRepoStatusModel};
 use crate::appearance::Appearance;
-use crate::code::editor::view::{CodeEditorRenderOptions, CodeEditorView};
+use crate::code::editor::view::{CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView};
+use crate::code::editor::{add_color, remove_color};
+use crate::ui_components::buttons::{close_button, icon_button};
+use crate::ui_components::icons::Icon;
 use crate::util::git::FileChangeEntry;
 use crate::workspace::WorkspaceAction;
+
+struct FileCard {
+    entry: FileChangeEntry,
+    editor: Option<ViewHandle<CodeEditorView>>,
+    base: Option<String>,
+    expanded: bool,
+    dirty: bool,
+    message: String,
+    toggle_mouse: MouseStateHandle,
+    copy_mouse: MouseStateHandle,
+    open_mouse: MouseStateHandle,
+}
+
+impl FileCard {
+    fn new(entry: FileChangeEntry) -> Self {
+        Self {
+            entry,
+            editor: None,
+            base: None,
+            expanded: true,
+            dirty: true,
+            message: "Loading changes…".into(),
+            toggle_mouse: Default::default(),
+            copy_mouse: Default::default(),
+            open_mouse: Default::default(),
+        }
+    }
+}
 
 pub struct GitReviewView {
     root: PathBuf,
     status: ModelHandle<GitRepoStatusModel>,
-    selected: Option<String>,
-    files: Vec<FileChangeEntry>,
-    editor: Option<ViewHandle<CodeEditorView>>,
+    files: Vec<FileCard>,
     message: String,
-    loading: Option<SpawnedFutureHandle>,
-    pending: bool,
-    selection_epoch: u64,
-    expanded: bool,
-    base: Option<String>,
-    baseline_epoch: u64,
-    list_scroll: ClippedScrollStateHandle,
-    row_mouse: HashMap<String, MouseStateHandle>,
+    loading: Option<(String, SpawnedFutureHandle)>,
+    list: ListState<()>,
+    scroll: ScrollStateHandle,
     close_mouse: MouseStateHandle,
-    open_mouse: MouseStateHandle,
 }
 
 impl GitReviewView {
@@ -50,6 +76,27 @@ impl GitReviewView {
         status: ModelHandle<GitRepoStatusModel>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
+        let weak = ctx.handle();
+        let (visible_tx, visible_rx) = async_channel::unbounded();
+        let list = ListState::new(move |index, _, app| {
+            let Some(view) = weak.upgrade(app) else {
+                return Empty::new().finish();
+            };
+            let me = view.as_ref(app);
+            let Some(card) = me.files.get(index) else {
+                return Empty::new().finish();
+            };
+            if card.expanded && card.dirty && me.loading.is_none() {
+                // Layout only reports demand; all state changes and I/O belong to the view.
+                let _ = visible_tx.try_send(index);
+            }
+            me.render_card(card, app)
+        });
+        ctx.spawn_stream_local(
+            visible_rx,
+            |me, index, ctx| me.load_visible(index, ctx),
+            |_, _| (),
+        );
         ctx.subscribe_to_model(&status, |me, _, event, ctx| match event {
             GitRepoStatusEvent::MetadataChanged => {
                 if me.status.as_ref(ctx).metadata(ctx).is_none() {
@@ -60,37 +107,29 @@ impl GitReviewView {
                 }
             }
             GitRepoStatusEvent::FilesInvalidated(changes) => {
-                if changes.git_changed {
-                    me.base = None;
-                    me.baseline_epoch += 1;
+                for card in &mut me.files {
+                    if changes.git_changed {
+                        card.base = None;
+                    }
+                    if changes.full
+                        || changes.git_changed
+                        || changes.paths.contains(&PathBuf::from(&card.entry.path))
+                    {
+                        card.dirty = true;
+                    }
                 }
-                if changes.full
-                    || me
-                        .selected
-                        .as_ref()
-                        .is_some_and(|path| changes.paths.contains(&PathBuf::from(path)))
-                {
-                    me.reload_selected(ctx);
-                }
+                ctx.notify();
             }
         });
         let mut view = Self {
             root,
             status,
-            selected: None,
             files: Vec::new(),
-            editor: None,
             message: "Loading changes…".into(),
             loading: None,
-            pending: false,
-            selection_epoch: 0,
-            expanded: true,
-            base: None,
-            baseline_epoch: 0,
-            list_scroll: Default::default(),
-            row_mouse: Default::default(),
+            list,
+            scroll: Default::default(),
             close_mouse: Default::default(),
-            open_mouse: Default::default(),
         };
         view.update_files(ctx);
         view
@@ -100,109 +139,275 @@ impl GitReviewView {
         if self.status.as_ref(ctx).metadata(ctx).is_none() {
             return;
         }
+        let old_len = self.files.len();
+        let mut previous: HashMap<_, _> = self
+            .files
+            .drain(..)
+            .map(|card| (card.entry.path.clone(), card))
+            .collect();
         self.files = self
             .status
             .as_ref(ctx)
             .files(ctx)
             .unwrap_or_default()
-            .to_vec();
-        let paths: HashSet<_> = self.files.iter().map(|file| &file.path).collect();
-        self.row_mouse.retain(|path, _| paths.contains(path));
-        for file in &self.files {
-            self.row_mouse.entry(file.path.clone()).or_default();
+            .iter()
+            .cloned()
+            .map(|entry| {
+                if let Some(mut card) = previous.remove(&entry.path) {
+                    card.entry = entry;
+                    card
+                } else {
+                    FileCard::new(entry)
+                }
+            })
+            .collect();
+        for _ in old_len..self.files.len() {
+            self.list.add_item();
         }
-        if !self
-            .selected
+        for index in (self.files.len()..old_len).rev() {
+            self.list.remove(index);
+        }
+        for index in 0..self.files.len() {
+            self.list.invalidate_height_for_index(index);
+        }
+        if self
+            .loading
             .as_ref()
-            .is_some_and(|path| paths.contains(path))
+            .is_some_and(|(path, _)| !self.files.iter().any(|card| card.entry.path == *path))
         {
-            self.select(self.files.first().map(|file| file.path.clone()), ctx);
+            self.cancel_loading();
         }
-        if self.files.is_empty() {
-            self.message = "No uncommitted changes".into();
-        }
+        self.message = if self.files.is_empty() {
+            "No uncommitted changes".into()
+        } else {
+            String::new()
+        };
         ctx.notify();
     }
 
-    fn select(&mut self, path: Option<String>, ctx: &mut ViewContext<Self>) {
-        self.expanded = self.selected != path || !self.expanded;
-        self.selection_epoch += 1;
-        if let Some(task) = self.loading.take() {
+    fn cancel_loading(&mut self) {
+        if let Some((_, task)) = self.loading.take() {
             task.abort();
         }
-        self.selected = path;
-        self.base = None;
-        self.editor = None;
-        self.pending = false;
-        self.reload_selected(ctx);
-        ctx.notify();
     }
 
-    fn reload_selected(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self.expanded {
+    fn load_visible(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
+        // The list may measure preceding items to estimate height; those are not load requests.
+        if self.loading.is_some()
+            || index >= self.files.len()
+            || (index != self.list.get_scroll_index()
+                && !self
+                    .list
+                    .is_vertical_range_visible(index, Pixels::zero(), Pixels::zero()))
+        {
             return;
         }
-        let Some(path) = self.selected.clone() else {
-            return;
-        };
-        if self.loading.is_some() {
-            self.pending = true;
+        let card = &mut self.files[index];
+        if !card.expanded || !card.dirty {
             return;
         }
-        self.message = "Updating…".into();
+        card.dirty = false;
+        card.message = "Updating…".into();
+        let path = card.entry.path.clone();
         let root = self.root.clone();
-        let epoch = self.selection_epoch;
-        let baseline_epoch = self.baseline_epoch;
-        let base = self.base.clone();
-        self.loading = Some(ctx.spawn(
-            async move { load_file(root, path, base).await },
-            move |me, result, ctx| {
-                if me.selection_epoch != epoch {
-                    return;
-                }
-                me.loading = None;
-                if me.baseline_epoch != baseline_epoch {
-                    me.pending = false;
-                    me.reload_selected(ctx);
-                    return;
-                }
-                match result {
-                    Ok(Some((base, current))) => {
-                        let editor = me.editor.get_or_insert_with(|| {
-                            ctx.add_typed_action_view(|ctx| {
-                                CodeEditorView::new(
-                                    None,
-                                    None,
-                                    CodeEditorRenderOptions::new(
-                                        VerticalExpansionBehavior::FillMaxHeight,
-                                    ),
-                                    ctx,
-                                )
-                            })
-                        });
-                        editor.update(ctx, |editor, ctx| {
-                            editor.set_review_content(&base, &current, ctx)
-                        });
-                        me.base = Some(base);
-                        me.message.clear();
+        let base = card.base.clone();
+        let result_path = path.clone();
+        self.loading = Some((
+            path.clone(),
+            ctx.spawn(
+                async move { load_file(root, path, base).await },
+                move |me, result, ctx| {
+                    me.loading = None;
+                    let Some(index) = me
+                        .files
+                        .iter()
+                        .position(|card| card.entry.path == result_path)
+                    else {
+                        ctx.notify();
+                        return;
+                    };
+                    // A save or Git change during this read supersedes its snapshot.
+                    if me.files[index].dirty || !me.files[index].expanded {
+                        ctx.notify();
+                        return;
                     }
-                    Ok(None) => {
-                        me.editor = None;
-                        me.message = "No text diff to display".into();
+                    match result {
+                        Ok(Some((base, current))) => {
+                            let editor = if let Some(editor) = &me.files[index].editor {
+                                editor.clone()
+                            } else {
+                                let editor = ctx.add_typed_action_view(|ctx| {
+                                    CodeEditorView::new(
+                                        None,
+                                        None,
+                                        CodeEditorRenderOptions::new(
+                                            VerticalExpansionBehavior::GrowToMaxHeight,
+                                        ),
+                                        ctx,
+                                    )
+                                });
+                                let path = result_path.clone();
+                                ctx.subscribe_to_view(&editor, move |me, _, event, ctx| {
+                                    if matches!(
+                                        event,
+                                        CodeEditorEvent::DiffUpdated
+                                            | CodeEditorEvent::HiddenSectionExpanded
+                                            | CodeEditorEvent::LayoutInvalidated
+                                    ) && let Some(index) =
+                                        me.files.iter().position(|card| card.entry.path == path)
+                                    {
+                                        me.list.invalidate_height_for_index(index);
+                                        ctx.notify();
+                                    }
+                                });
+                                editor.update(ctx, |editor, ctx| {
+                                    editor.set_language_with_local_path(
+                                        &me.root.join(&result_path),
+                                        ctx,
+                                    );
+                                });
+                                me.files[index].editor = Some(editor.clone());
+                                editor
+                            };
+                            editor.update(ctx, |editor, ctx| {
+                                editor.set_review_content(&base, &current, ctx)
+                            });
+                            me.files[index].base = Some(base);
+                            me.files[index].message.clear();
+                        }
+                        Ok(None) => {
+                            me.files[index].editor = None;
+                            me.files[index].message = "No text diff to display".into();
+                        }
+                        Err(error) => {
+                            me.files[index].editor = None;
+                            me.files[index].message = format!("Unable to load diff: {error:#}");
+                        }
                     }
-                    Err(error) => {
-                        me.editor = None;
-                        me.message = format!("Unable to load diff: {error:#}");
-                    }
-                }
-                if std::mem::take(&mut me.pending) {
-                    me.reload_selected(ctx);
-                }
-                ctx.notify();
-            },
+                    me.list.invalidate_height_for_index(index);
+                    ctx.notify();
+                },
+            ),
         ));
         ctx.notify();
     }
+
+    fn render_card(&self, card: &FileCard, app: &AppContext) -> Box<dyn Element> {
+        let appearance = Appearance::as_ref(app);
+        let theme = appearance.theme();
+        let path = card.entry.path.clone();
+        let mut header = Flex::row();
+        header.add_child(
+            icon_button(
+                appearance,
+                if card.expanded {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronRight
+                },
+                false,
+                card.toggle_mouse.clone(),
+            )
+            .build()
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(GitReviewAction::Toggle(path.clone()));
+            })
+            .finish(),
+        );
+        let path = card.entry.path.clone();
+        header.add_child(
+            Shrinkable::new(
+                1.,
+                Text::new_inline(path, appearance.ui_font_family(), 13.)
+                    .with_color(theme.main_text_color(theme.surface_2()).into())
+                    .finish(),
+            )
+            .finish(),
+        );
+        let copy_path = card.entry.path.clone();
+        header.add_child(
+            icon_button(appearance, Icon::Copy, false, card.copy_mouse.clone())
+                .build()
+                .on_click(move |ctx, _, _| {
+                    ctx.dispatch_typed_action(GitReviewAction::CopyPath(copy_path.clone()));
+                })
+                .finish(),
+        );
+        header.add_child(diff_badge(
+            card.entry.additions,
+            card.entry.deletions,
+            appearance,
+        ));
+        let path = self.root.join(&card.entry.path);
+        header.add_child(
+            icon_button(
+                appearance,
+                Icon::LinkExternal,
+                false,
+                card.open_mouse.clone(),
+            )
+            .build()
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(WorkspaceAction::OpenFilePath { path: path.clone() });
+            })
+            .finish(),
+        );
+        let mut column = Flex::column().with_child(
+            Container::new(header.finish())
+                .with_background(theme.surface_2())
+                .with_padding(Padding::uniform(8.))
+                .finish(),
+        );
+        if card.expanded {
+            if let Some(editor) = &card.editor {
+                column.add_child(
+                    ConstrainedBox::new(ChildView::new(editor).finish())
+                        .with_max_height(1000.)
+                        .finish(),
+                );
+            } else {
+                column.add_child(
+                    Container::new(
+                        Text::new_inline(card.message.clone(), appearance.ui_font_family(), 13.)
+                            .with_color(theme.sub_text_color(theme.background()).into())
+                            .finish(),
+                    )
+                    .with_padding(Padding::uniform(12.))
+                    .finish(),
+                );
+            }
+        }
+        Container::new(column.finish())
+            .with_background(theme.background())
+            .with_border(Border::all(1.).with_border_fill(theme.outline()))
+            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
+            .with_margin_bottom(12.)
+            .finish()
+    }
+}
+
+fn diff_badge(additions: usize, deletions: usize, appearance: &Appearance) -> Box<dyn Element> {
+    let mut row = Flex::row();
+    row.add_child(
+        Text::new_inline(format!("+{additions}"), appearance.ui_font_family(), 12.)
+            .with_color(add_color(appearance))
+            .finish(),
+    );
+    row.add_child(
+        Container::new(
+            Text::new_inline(format!("−{deletions}"), appearance.ui_font_family(), 12.)
+                .with_color(remove_color(appearance))
+                .finish(),
+        )
+        .with_margin_left(8.)
+        .finish(),
+    );
+    Container::new(row.finish())
+        .with_background(appearance.theme().background())
+        .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
+        .with_padding(Padding::uniform(3.).with_horizontal(8.))
+        .with_margin_right(8.)
+        .finish()
 }
 
 async fn load_file(
@@ -259,14 +464,34 @@ async fn load_file(
 
 #[derive(Debug, Clone)]
 pub enum GitReviewAction {
-    Select(String),
+    Toggle(String),
+    CopyPath(String),
 }
 
 impl TypedActionView for GitReviewView {
     type Action = GitReviewAction;
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
-            GitReviewAction::Select(path) => self.select(Some(path.clone()), ctx),
+            GitReviewAction::CopyPath(path) => {
+                ctx.clipboard()
+                    .write(ClipboardContent::plain_text(path.clone()));
+            }
+            GitReviewAction::Toggle(path) => {
+                if let Some(index) = self.files.iter().position(|card| card.entry.path == *path) {
+                    self.files[index].expanded = !self.files[index].expanded;
+                    if !self.files[index].expanded
+                        && self
+                            .loading
+                            .as_ref()
+                            .is_some_and(|(loading, _)| loading == path)
+                    {
+                        self.cancel_loading();
+                        self.files[index].dirty = true;
+                    }
+                    self.list.invalidate_height_for_index(index);
+                    ctx.notify();
+                }
+            }
         }
     }
 }
@@ -278,109 +503,98 @@ impl View for GitReviewView {
     fn ui_name() -> &'static str {
         "GitReview"
     }
+
+    fn child_view_ids(&self, _app: &AppContext) -> Vec<EntityId> {
+        self.files
+            .iter()
+            .filter_map(|card| card.editor.as_ref().map(ViewHandle::id))
+            .collect()
+    }
+
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
         let font = appearance.ui_font_family();
-        let text_color = theme.main_text_color(theme.background()).into();
-        let label = move |text: String| {
-            Text::new_inline(text, font, 13.)
-                .with_color(text_color)
-                .finish()
-        };
+        let branch = self
+            .status
+            .as_ref(app)
+            .metadata(app)
+            .map(|metadata| metadata.current_branch_name.as_str())
+            .unwrap_or("");
         let mut header = Flex::row();
-        header
-            .add_child(Shrinkable::new(1., label("Changes · HEAD → Working tree".into())).finish());
         header.add_child(
-            Hoverable::new(self.close_mouse.clone(), move |_| {
-                Container::new(label("Close".into()))
-                    .with_padding(Padding::uniform(8.))
-                    .finish()
-            })
-            .on_click(|ctx, _, _| {
-                ctx.dispatch_typed_action(WorkspaceAction::CloseGitReview);
-            })
-            .with_cursor(Cursor::PointingHand)
+            Shrinkable::new(
+                1.,
+                Text::new_inline(format!("{}  ·  {branch}", self.root.display()), font, 12.)
+                    .with_color(theme.sub_text_color(theme.background()).into())
+                    .finish(),
+            )
             .finish(),
         );
-        let mut rows = Flex::column();
-        for file in &self.files {
-            let path = file.path.clone();
-            let selected = self.selected.as_ref() == Some(&path);
-            let row = label(format!(
-                "{}  {}   +{} −{}",
-                if selected && self.expanded {
-                    "▾"
-                } else {
-                    "▸"
-                },
-                path,
-                file.additions,
-                file.deletions
-            ));
-            rows.add_child(
-                Hoverable::new(
-                    self.row_mouse.get(&path).cloned().unwrap_or_default(),
-                    move |_| {
-                        Container::new(row)
-                            .with_padding(Padding::uniform(6.))
-                            .finish()
-                    },
-                )
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(GitReviewAction::Select(path.clone()));
+        header.add_child(
+            close_button(appearance, self.close_mouse.clone())
+                .build()
+                .on_click(|ctx, _, _| {
+                    ctx.dispatch_typed_action(WorkspaceAction::CloseGitReview);
                 })
-                .with_cursor(Cursor::PointingHand)
                 .finish(),
+        );
+        let mut summary = Flex::row();
+        summary.add_child(
+            Shrinkable::new(
+                1.,
+                Text::new_inline(
+                    format!("Uncommitted changes  ·  {} files", self.files.len()),
+                    font,
+                    13.,
+                )
+                .with_color(theme.main_text_color(theme.background()).into())
+                .finish(),
+            )
+            .finish(),
+        );
+        summary.add_child(diff_badge(
+            self.files.iter().map(|card| card.entry.additions).sum(),
+            self.files.iter().map(|card| card.entry.deletions).sum(),
+            appearance,
+        ));
+        let mut column = Flex::column()
+            .with_child(
+                Container::new(header.finish())
+                    .with_margin_bottom(8.)
+                    .finish(),
+            )
+            .with_child(
+                Container::new(summary.finish())
+                    .with_margin_bottom(12.)
+                    .finish(),
+            );
+        if !self.message.is_empty() {
+            column.add_child(
+                Text::new_inline(self.message.clone(), font, 13.)
+                    .with_color(theme.sub_text_color(theme.background()).into())
+                    .finish(),
             );
         }
         let list = NewScrollable::vertical(
-            SingleAxisConfig::Clipped {
-                handle: self.list_scroll.clone(),
-                child: rows.finish(),
+            SingleAxisConfig::Manual {
+                handle: self.scroll.clone(),
+                child: NewScrollableElement::finish_scrollable(List::new(self.list.clone())),
             },
             theme.disabled_text_color(theme.background()).into(),
             theme.main_text_color(theme.background()).into(),
             warpui::elements::Fill::None,
         )
         .finish();
-        let mut column = Flex::column();
-        column.add_child(header.finish());
-        column.add_child(ConstrainedBox::new(list).with_height(180.).finish());
-        if let Some(path) = &self.selected {
-            let root = self.root.clone();
-            let path = path.clone();
-            column.add_child(
-                Hoverable::new(self.open_mouse.clone(), move |_| {
-                    Container::new(label("Open file ↗".into()))
-                        .with_padding(Padding::uniform(6.))
-                        .finish()
-                })
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(WorkspaceAction::OpenFilePath {
-                        path: root.join(&path),
-                    });
-                })
-                .with_cursor(Cursor::PointingHand)
-                .finish(),
-            );
-        }
-        if !self.message.is_empty() {
-            column.add_child(label(self.message.clone()));
-        }
-        if let Some(editor) = &self.editor {
-            column.add_child(Shrinkable::new(1., ChildView::new(editor).finish()).finish());
-        }
+        column.add_child(Shrinkable::new(1., list).finish());
         Container::new(column.finish())
-            .with_padding(Padding::uniform(8.))
+            .with_padding(Padding::uniform(16.))
             .finish()
     }
 }
 
 impl Drop for GitReviewView {
     fn drop(&mut self) {
-        if let Some(task) = self.loading.take() {
-            task.abort();
-        }
+        self.cancel_loading();
     }
 }

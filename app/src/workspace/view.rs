@@ -10264,7 +10264,7 @@ impl Workspace {
                 self.render_panel(
                     app,
                     ConstrainedBox::new(ChildView::new(review).finish())
-                        .with_width(650.)
+                        .with_width(800.)
                         .finish(),
                     &PanelPosition::Right,
                 ),
