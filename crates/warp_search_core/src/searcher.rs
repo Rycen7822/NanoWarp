@@ -468,19 +468,11 @@ impl SearcherWriterWrapper {
         let guard = handle_copy.read();
         let memory_budget = memory_budget.max(MIN_MEMORY_BUDGET);
         let search_index = guard.search_index.clone();
-        let num_threads = std::cmp::min(
-            available_parallelism().map(|ap| ap.get()).unwrap_or(1),
-            MAX_THREADS_PER_INDEX_WRITER,
-        );
-        let writer = search_index
-            .writer_with_num_threads(memory_budget, num_threads)
-            .ok();
-
         SearcherWriterWrapper {
             search_index,
             memory_budget,
             composite_key_field,
-            writer,
+            writer: None,
             reader_handle,
             id_field_names: guard.id_fields.keys().cloned().collect(),
         }
@@ -625,7 +617,14 @@ impl SearcherWriterWrapper {
 
     fn writer(&mut self) -> anyhow::Result<&mut IndexWriter<TantivyDocument>> {
         if self.writer.is_none() {
-            let writer = self.search_index.writer(self.memory_budget)?;
+            let num_threads = available_parallelism()
+                .map(|parallelism| parallelism.get())
+                .unwrap_or(1)
+                .min(MAX_THREADS_PER_INDEX_WRITER)
+                .min(self.memory_budget / MIN_MEMORY_BUDGET);
+            let writer = self
+                .search_index
+                .writer_with_num_threads(num_threads, self.memory_budget)?;
             self.writer = Some(writer);
         }
 
@@ -642,8 +641,8 @@ impl SearcherWriterWrapper {
 /// - A prefix regex query (`word.*`) for the last word.
 /// - Results are boosted based on field weights.
 ///
-/// If reader/writer initialization attempt fails on construction, the writer will reattempt initialization on the _write_ operations
-/// until success. This is to avoid error handling when constructing the searcher.
+/// The writer is created on the first write. Reader initialization failures are also retried
+/// on writes, so constructing the searcher does not require error handling.
 pub struct SimpleFullTextSearcher<C: SearchSchemaConfig> {
     writer: SearcherWriterHandle,
     reader: SearcherReaderHandle,
