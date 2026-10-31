@@ -48,6 +48,67 @@ pub async fn run_git_command_with_env(
     }
 }
 
+/// Reads one HEAD blob with bounded stdout and diagnostic stderr (64 KiB).
+/// An oversized output or cancellation drops the child with kill/reaping enabled.
+/// The limit applies before lossy UTF-8 conversion, which may increase text size.
+pub async fn read_head_file(repo_path: &Path, path: &str, max_bytes: usize) -> Result<String> {
+    use futures_util::io::{AsyncRead, AsyncReadExt};
+    const MAX_STDERR_BYTES: usize = 64 * 1024;
+
+    async fn read_limited(reader: impl AsyncRead + Unpin, limit: usize) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        reader
+            .take(limit.saturating_add(1) as u64)
+            .read_to_end(&mut bytes)
+            .await?;
+        anyhow::ensure!(bytes.len() <= limit, "Git output exceeds {limit} bytes");
+        Ok(bytes)
+    }
+
+    let mut cmd = git_command(
+        repo_path,
+        &["show", &format!("HEAD:{path}")],
+        &[("GIT_OPTIONAL_LOCKS", "0")],
+    );
+    cmd.kill_on_drop(true);
+    #[cfg(windows)]
+    let (mut child, stdout, stderr) = {
+        // Avoid async-process's 8 MiB per-stream buffers, as in Command::output.
+        let (stdout, stdout_writer) = std::io::pipe()?;
+        let (stderr, stderr_writer) = std::io::pipe()?;
+        cmd.stdout(stdout_writer).stderr(stderr_writer);
+        let child = cmd.spawn()?;
+        drop(cmd); // Release the command's writer copies so readers can observe EOF.
+        (
+            child,
+            blocking::Unblock::with_capacity(4 * 1024 * 1024, stdout),
+            blocking::Unblock::with_capacity(MAX_STDERR_BYTES, stderr),
+        )
+    };
+    #[cfg(not(windows))]
+    let (mut child, stdout, stderr) = {
+        cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = cmd.spawn()?;
+        let stdout = child.stdout.take().expect("stdout was configured as piped");
+        let stderr = child.stderr.take().expect("stderr was configured as piped");
+        (child, stdout, stderr)
+    };
+    let (stdout, stderr) = futures_util::future::try_join(
+        read_limited(stdout, max_bytes),
+        read_limited(stderr, MAX_STDERR_BYTES),
+    )
+    .await?;
+    let status = child.status().await?;
+    anyhow::ensure!(
+        status.success(),
+        "Git show failed: {}",
+        String::from_utf8_lossy(&stderr)
+    );
+    Ok(String::from_utf8(stdout)
+        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned()))
+}
+
 /// Builds the command that runs `git` with `args` in `repo_path`, with `env` set on the child.
 ///
 /// A WSL session's working directory is a `\\wsl$\<distro>\...` UNC path on a Windows host, and

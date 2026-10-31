@@ -10951,6 +10951,7 @@ name = "warp_util"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blocking",
  "command",
  "content_inspector",
  "directories",

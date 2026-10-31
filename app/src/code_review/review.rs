@@ -455,12 +455,13 @@ async fn load_file(
                 _ => &path,
             };
             Arc::new(
-                warp_util::git::run_git_command(&root, &["show", &format!("HEAD:{base_path}")])
+                warp_util::git::read_head_file(&root, base_path, MAX_DIFF_SIZE)
                     .await
                     .context("cannot read HEAD content")?,
             )
         }
     };
+    // Lossy UTF-8 decoding can expand the bounded raw output.
     if base.len() > MAX_DIFF_SIZE {
         anyhow::bail!("base content is too large to display");
     }
