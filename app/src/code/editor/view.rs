@@ -7,18 +7,23 @@ use std::path::Path;
 use lazy_static::lazy_static;
 use num_traits::SaturatingSub;
 use pathfinder_color::ColorU;
+use rangemap::RangeSet;
 use settings::Setting as _;
 use string_offset::CharOffset;
-use vec1::vec1;
+use vec1::{Vec1, vec1};
 use vim::vim::{Direction, InsertPosition, VimMode, VimModel, VimState, VimSubscriber};
 use warp_core::platform::SessionPlatform;
-use warp_editor::content::buffer::{Buffer, EditOrigin, ToBufferPoint};
+use warp_editor::content::buffer::{
+    AutoScrollBehavior, Buffer, BufferSelectAction, EditOrigin, SelectionOffsets, ToBufferPoint,
+};
+use warp_editor::content::text::LineCount as BufferLineCount;
 use warp_editor::content::version::BufferVersion;
 use warp_editor::model::CoreEditorModel;
 use warp_editor::multiline::AnyMultilineString;
 use warp_editor::render::element::{
     DisplayOptions, DisplayStateHandle, RichTextElement, VerticalExpansionBehavior,
 };
+use warp_editor::render::model::viewport::ScrollPositionSnapshot;
 use warp_editor::render::model::{
     AutoScrollMode, BlockSpacing, BlockSpacings, CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES,
     ExpansionType, InlineCodeStyle, LineCount, ParagraphStyles, RichTextStyles,
@@ -35,6 +40,7 @@ use warpui::elements::{
 };
 use warpui::event::ModifiersState;
 use warpui::keymap::Keystroke;
+use warpui::units::Pixels;
 use warpui::{
     AppContext, BlurContext, CursorInfo, Element, Entity, FocusContext, ModelHandle,
     SingletonEntity, View, ViewContext, ViewHandle, WeakViewHandle,
@@ -139,13 +145,88 @@ pub struct CodeEditorView {
     self_handle: WeakViewHandle<Self>,
     display_options: CodeEditorViewDisplayOptions,
     pending_scroll: Option<ScrollTrigger>,
+    pending_review_state: Option<(BufferVersion, ReviewEditorState)>,
     supports_vim_mode: bool,
     vim_model: ModelHandle<VimModel>,
     // Track the most recent Vim search direction to determine how to cycle (n/N) thereafter.
     last_search_direction: Direction,
 }
 
+/// Interaction state retained while a collapsed review card releases its editor and text.
+pub(crate) struct ReviewEditorState {
+    selections: Vec1<SelectionOffsets>,
+    visible_offsets: RangeSet<CharOffset>,
+    scroll: ScrollPositionSnapshot,
+    horizontal_scroll: Pixels,
+}
+
 impl CodeEditorView {
+    pub(crate) fn review_state(&self, ctx: &AppContext) -> ReviewEditorState {
+        let model = self.model.as_ref(ctx);
+        let render = model.render_state().as_ref(ctx);
+        ReviewEditorState {
+            selections: model.selections(ctx),
+            visible_offsets: render.viewport_charoffset_range(),
+            scroll: render.snapshot_scroll_position(),
+            horizontal_scroll: render.viewport().scroll_left(),
+        }
+    }
+
+    pub(crate) fn restore_review_state(&mut self, state: ReviewEditorState, ctx: &AppContext) {
+        // As with pending_scroll, wait until the replacement content has reached layout.
+        self.pending_review_state = Some((self.model.as_ref(ctx).buffer_version(ctx), state));
+    }
+
+    fn apply_review_state(&mut self, state: ReviewEditorState, ctx: &mut ViewContext<Self>) {
+        self.model.update(ctx, |model, ctx| {
+            let buffer = model.buffer().as_ref(ctx);
+            let max = buffer.max_charoffset();
+            let clamp = |offset: CharOffset| offset.min(max).max(CharOffset::from(1));
+            let selections = state.selections.mapped(|s| SelectionOffsets {
+                head: clamp(s.head),
+                tail: clamp(s.tail),
+            });
+            // Reopening recomputes collapsed context; keep the old viewport and selection visible.
+            let visible_lines: Vec<_> = state
+                .visible_offsets
+                .into_iter()
+                .chain(
+                    selections
+                        .iter()
+                        .map(|s| s.head.min(s.tail)..s.head.max(s.tail)),
+                )
+                .map(|range| {
+                    BufferLineCount::from(
+                        clamp(range.start)
+                            .to_buffer_point(buffer)
+                            .row
+                            .saturating_sub(1) as usize,
+                    )
+                        ..BufferLineCount::from(
+                            clamp(range.end).to_buffer_point(buffer).row as usize,
+                        )
+                })
+                .collect();
+            for range in visible_lines {
+                model.set_visible_line_range(range, ctx);
+            }
+            model.selection().update(ctx, |selection, ctx| {
+                selection.update_selection(
+                    BufferSelectAction::SetSelectionOffsets { selections },
+                    AutoScrollBehavior::None,
+                    ctx,
+                );
+            });
+            model.render_state().update(ctx, |render, ctx| {
+                render.scroll_to(state.scroll);
+                render.scroll_horizontal(
+                    render.viewport().scroll_left() - state.horizontal_scroll,
+                    ctx,
+                );
+            });
+        });
+    }
+
     /// Replace a read-only review snapshot without touching a shared file buffer.
     pub(crate) fn set_review_content(
         &mut self,
@@ -270,6 +351,7 @@ impl CodeEditorView {
                 ),
             },
             pending_scroll: None,
+            pending_review_state: None,
             supports_vim_mode,
             vim_model,
             last_search_direction: Direction::Forward,
@@ -743,6 +825,12 @@ impl CodeEditorView {
                 ctx.emit(CodeEditorEvent::ContentChanged { origin: *origin });
             }
             CodeEditorModelEvent::ViewportUpdated(version) => {
+                if let Some((_, state)) = self
+                    .pending_review_state
+                    .take_if(|(minimum_version, _)| *minimum_version <= *version)
+                {
+                    self.apply_review_state(state, ctx);
+                }
                 if let Some(trigger) = self
                     .pending_scroll
                     .take_if(|trigger| trigger.minimum_applicable_version <= *version)

@@ -2,6 +2,7 @@
 //! Only visible, expanded cards load detail, one file at a time.
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use warp_editor::render::element::VerticalExpansionBehavior;
@@ -24,7 +25,9 @@ use super::diff_size_limits::{MAX_CHARACTERS_PER_LINE, MAX_DIFF_SIZE};
 use super::diff_state::{DiffMode, GitFileStatus, LocalDiffStateModel};
 use super::git_repo_model::{GitRepoStatusEvent, GitRepoStatusModel};
 use crate::appearance::Appearance;
-use crate::code::editor::view::{CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView};
+use crate::code::editor::view::{
+    CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView, ReviewEditorState,
+};
 use crate::code::editor::{add_color, remove_color};
 use crate::ui_components::buttons::{close_button, icon_button};
 use crate::ui_components::icons::Icon;
@@ -34,7 +37,8 @@ use crate::workspace::WorkspaceAction;
 struct FileCard {
     entry: FileChangeEntry,
     editor: Option<ViewHandle<CodeEditorView>>,
-    base: Option<String>,
+    editor_state: Option<ReviewEditorState>,
+    base: Option<Arc<String>>,
     expanded: bool,
     dirty: bool,
     message: String,
@@ -48,6 +52,7 @@ impl FileCard {
         Self {
             entry,
             editor: None,
+            editor_state: None,
             base: None,
             expanded: true,
             dirty: true,
@@ -210,6 +215,7 @@ impl GitReviewView {
         card.message = "Updating…".into();
         let path = card.entry.path.clone();
         let root = self.root.clone();
+        // Keep the cached snapshot available if an edit supersedes this cancellable read.
         let base = card.base.clone();
         let result_path = path.clone();
         self.loading = Some((
@@ -247,7 +253,7 @@ impl GitReviewView {
                                     )
                                 });
                                 let path = result_path.clone();
-                                ctx.subscribe_to_view(&editor, move |me, _, event, ctx| {
+                                ctx.subscribe_to_view(&editor, move |me, editor, event, ctx| {
                                     if matches!(
                                         event,
                                         CodeEditorEvent::DiffUpdated
@@ -256,6 +262,14 @@ impl GitReviewView {
                                     ) && let Some(index) =
                                         me.files.iter().position(|card| card.entry.path == path)
                                     {
+                                        if matches!(event, CodeEditorEvent::DiffUpdated)
+                                            && !me.files[index].dirty
+                                            && let Some(state) = me.files[index].editor_state.take()
+                                        {
+                                            editor.update(ctx, |editor, ctx| {
+                                                editor.restore_review_state(state, ctx);
+                                            });
+                                        }
                                         me.list.invalidate_height_for_index(index);
                                         ctx.notify();
                                     }
@@ -270,7 +284,7 @@ impl GitReviewView {
                                 editor
                             };
                             editor.update(ctx, |editor, ctx| {
-                                editor.set_review_content(&base, &current, ctx)
+                                editor.set_review_content(&base, &current, ctx);
                             });
                             me.files[index].base = Some(base);
                             me.files[index].message.clear();
@@ -421,8 +435,8 @@ fn diff_badge(additions: usize, deletions: usize, appearance: &Appearance) -> Bo
 async fn load_file(
     root: PathBuf,
     path: String,
-    cached_base: Option<String>,
-) -> Result<Option<(String, String)>> {
+    cached_base: Option<Arc<String>>,
+) -> Result<Option<(Arc<String>, String)>> {
     // The editor already computes and renders the diff. Querying a Git patch
     // and its binary numstat first repeats that work and adds WSL launches.
     let Some((_, status)) =
@@ -432,7 +446,7 @@ async fn load_file(
     };
     let base = match (cached_base, &status) {
         (Some(base), _) => base,
-        (_, GitFileStatus::New | GitFileStatus::Untracked) => String::new(),
+        (_, GitFileStatus::New | GitFileStatus::Untracked) => Arc::new(String::new()),
         (_, status) => {
             let base_path = match status {
                 GitFileStatus::Renamed { old_path } | GitFileStatus::Copied { old_path } => {
@@ -440,9 +454,11 @@ async fn load_file(
                 }
                 _ => &path,
             };
-            warp_util::git::run_git_command(&root, &["show", &format!("HEAD:{base_path}")])
-                .await
-                .context("cannot read HEAD content")?
+            Arc::new(
+                warp_util::git::run_git_command(&root, &["show", &format!("HEAD:{base_path}")])
+                    .await
+                    .context("cannot read HEAD content")?,
+            )
         }
     };
     if base.len() > MAX_DIFF_SIZE {
@@ -486,10 +502,14 @@ impl TypedActionView for GitReviewView {
             }
             GitReviewAction::Toggle(path) => {
                 if let Some(index) = self.files.iter().position(|card| card.entry.path == *path) {
-                    self.files[index].expanded = !self.files[index].expanded;
-                    if self.files[index].expanded {
-                        self.files[index].dirty = true;
-                        self.files[index].base = None;
+                    let card = &mut self.files[index];
+                    card.expanded = !card.expanded;
+                    card.dirty = true;
+                    card.base = None;
+                    if !card.expanded
+                        && let Some(editor) = card.editor.take()
+                    {
+                        card.editor_state = Some(editor.as_ref(ctx).review_state(ctx));
                     }
                     if !self.files[index].expanded
                         && self
