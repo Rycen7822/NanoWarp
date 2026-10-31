@@ -297,10 +297,7 @@ impl DiffModel {
             let mut removed_lines = Vec::with_capacity(deleted_range.len());
             if let Ok(lines_in_range) = lines.lines_in_range(deleted_range) {
                 for line in lines_in_range {
-                    let mut content = line.to_string();
-                    if !content.ends_with('\n') {
-                        content.push('\n');
-                    }
+                    let content = [line.strip_suffix('\n').unwrap_or(line), "\n"].concat();
 
                     removed_lines.push(TemporaryBlock {
                         content,
@@ -326,10 +323,7 @@ impl DiffModel {
                     let mut start_char = 0;
                     if let Ok(lines_in_range) = lines.lines_in_range(replaced_range) {
                         for line in lines_in_range {
-                            let mut content = line.to_string();
-                            if !content.ends_with('\n') {
-                                content.push('\n');
-                            }
+                            let content = [line.strip_suffix('\n').unwrap_or(line), "\n"].concat();
 
                             let inline_text_decorations = deletion
                                 .iter()

@@ -148,7 +148,7 @@ impl GitReviewView {
         let mut previous: HashMap<_, _> = self
             .files
             .drain(..)
-            .map(|card| (card.entry.path.clone(), card))
+            .map(|mut card| (std::mem::take(&mut card.entry.path), card))
             .collect();
         self.files = self
             .status
